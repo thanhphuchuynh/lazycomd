@@ -255,19 +255,48 @@ func cell(s string, w int, st lipgloss.Style) string {
 	return st.Width(w).MaxWidth(w).Render(s)
 }
 
-// truncate cuts s to w runes, marking a cut with an ellipsis.
+// truncate cuts s to w visible columns, marking a cut with an ellipsis.
+// Like pad, it has to skip ANSI escapes: counting them as columns cut styled
+// rows tens of characters early.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	r := []rune(s)
-	if len(r) <= w {
+	if visibleWidth(s) <= w {
 		return s
 	}
 	if w == 1 {
 		return "…"
 	}
-	return string(r[:w-1]) + "…"
+
+	var (
+		b       strings.Builder
+		visible int
+		inEsc   bool
+		styled  bool
+	)
+	for _, r := range s {
+		switch {
+		case r == '\x1b':
+			inEsc, styled = true, true
+			b.WriteRune(r)
+		case inEsc:
+			b.WriteRune(r)
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+		default:
+			if visible == w-1 {
+				continue // keep consuming, only to catch trailing escapes
+			}
+			b.WriteRune(r)
+			visible++
+		}
+	}
+	if styled {
+		b.WriteString("\x1b[0m")
+	}
+	return b.String() + "…"
 }
 
 func formatUptime(sec float64) string {

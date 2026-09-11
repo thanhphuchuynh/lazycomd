@@ -56,18 +56,24 @@ explains itself.
 | `s` | Commands | start, dependencies first |
 | `S` | Commands | stop |
 | `r` | Commands | restart |
-| `p` | anywhere | fuzzy command search |
+| `/` `p` | anywhere | search box: commands, listening ports and the buffered log |
 | `i` | Commands | detail for the selected command: spec, state, ports, health |
+| `o` | Commands | open the full log, which is where the log filter lives |
 | `a` | Commands | add a command, writing it to the config |
 | `e` | Commands | edit the selected command |
 | `d` | Commands | delete it, after confirming which file changes |
 | `ctrl+d` `ctrl+u` | anywhere | scroll the main pane |
 | `f` | anywhere | toggle log follow |
-| `/` | Commands | filter the log pane |
-| `/` | Ports | search ports by number, address, process, pid or owner |
-| `esc` | anywhere | clear the filter, or close the detail pane |
+| `/` | log view | filter the lines, `esc` clears it |
+| `esc` | anywhere | close the search box, the log view or the detail pane |
 | `?` | anywhere | help overlay |
 | `q` `ctrl+c` | anywhere | quit (the daemon keeps running) |
+
+Enter in the search box goes to the match and nothing else: a command is
+selected, a port is selected in the Ports panel, and a log line opens the
+full log view with your query already applied as its filter. The pane beside
+the panels is a preview — it follows the selection and scrolls, and the
+filter lives in the full view where there is room to read the result.
 
 Lifecycle keys act on the Commands panel only; pressed elsewhere they say so
 rather than acting on something you cannot see.

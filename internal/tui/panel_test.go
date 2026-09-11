@@ -145,3 +145,21 @@ func TestVisibleWidthIgnoresEscapes(t *testing.T) {
 		t.Fatalf("visibleWidth = %d, want 3", got)
 	}
 }
+
+func TestTruncateMeasuresVisibleColumns(t *testing.T) {
+	styled := styleDim.Render("0123456789")
+	got := truncate(styled, 6)
+	if w := visibleWidth(got); w != 6 {
+		t.Fatalf("visible width = %d, want 6: %q", w, got)
+	}
+	if !strings.Contains(got, "01234") || strings.Contains(got, "56789") {
+		t.Fatalf("cut in the wrong place: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("no ellipsis marking the cut: %q", got)
+	}
+	// A styled string that fits is returned whole, escapes and all.
+	if got := truncate(styled, 10); got != styled {
+		t.Fatalf("a fitting styled string was altered: %q", got)
+	}
+}

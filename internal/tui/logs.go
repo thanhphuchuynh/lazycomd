@@ -65,6 +65,20 @@ func (l *logsModel) capLines() {
 	l.lines = append([]string(nil), l.lines[len(l.lines)-maxLogLines:]...)
 }
 
+// Lines is the buffered scrollback, which the search box reads to offer log
+// results without asking the daemon for anything.
+func (l logsModel) Lines() []string { return l.lines }
+
+// ApplyFilter sets the filter from outside — a log result in the search box
+// carries the query it was found with straight into the log view.
+func (l *logsModel) ApplyFilter(query string) {
+	l.filter.query = query
+	l.filter.editing = false
+	l.filter.input.SetValue(query)
+	l.filter.input.Blur()
+	l.refresh()
+}
+
 // visible is every line, or only the matching lines while a filter is set.
 func (l logsModel) visible() []string {
 	if l.filter.query == "" {

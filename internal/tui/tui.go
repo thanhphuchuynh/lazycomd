@@ -27,7 +27,7 @@ type Model struct {
 
 	table       tableModel
 	logs        logsModel
-	palette     paletteModel
+	search      searchModel
 	system      systemModel
 	statusPanel statusModel
 	form        formModel
@@ -69,7 +69,7 @@ func New(c *client.Client, s *sink) Model {
 		sink:        s,
 		table:       newTable(),
 		logs:        newLogs(),
-		palette:     newPalette(),
+		search:      newSearch(),
 		system:      newSystem(),
 		statusPanel: newStatus(c.Addr()),
 		form:        newForm(suggestFolder(), remoteClient(c)),
@@ -209,8 +209,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.overlay == overlayPalette {
-		return m.handlePaletteKey(k)
+	if m.overlay == overlaySearch {
+		return m.handleSearchKey(k)
+	}
+	if m.overlay == overlayLog {
+		return m.handleLogKey(k)
 	}
 	if m.overlay == overlayForm {
 		switch s {
@@ -244,12 +247,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Keys a filter input must swallow before anything else sees them.
-	if m.system.FilterEditing() {
-		var cmd tea.Cmd
-		m.system, cmd = m.system.Update(k)
-		return m, cmd
-	}
+	// Keys the log filter must swallow before anything else sees them. The
+	// filter only opens inside the log view, which handles its own keys.
 	if m.logs.FilterEditing() {
 		var cmd tea.Cmd
 		m.logs, cmd = m.logs.Update(k)
@@ -288,10 +287,18 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.detailOf, m.detailSpec, m.detailOK = sel.Name, config.Command{}, false
 		return m, fetchDetailConfig(m.client, sel.Name)
-	case "p":
-		m.palette.Open(m.table.rows)
-		m.overlay = overlayPalette
+	case "/", "p":
+		m.search.Open(m.table.rows, m.system.snap.Ports, m.logs.Name(), m.logs.Lines())
+		m.overlay = overlaySearch
 		return m, textinput.Blink
+	case "o":
+		if m.focus != focusCommands {
+			m.setStatus("press 2 for Commands first — o opens the selected command's log")
+			return m, nil
+		}
+		m.overlay = overlayLog
+		m.layout()
+		return m, nil
 	case "a":
 		m.form.OpenCreate(m.projects)
 		m.overlay = overlayForm
@@ -313,19 +320,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// The main pane scrolls from any panel, so j/k always belong to the
 	// focused panel instead of being shared.
-	case "ctrl+d", "ctrl+u", "f", "/":
-		// Slash searches whatever the focused panel lists; for Commands that
-		// is the log pane, which is what the main pane shows.
-		if s == "/" && m.focus == focusPorts {
-			return m.handlePanelKey(k)
-		}
+	case "ctrl+d", "ctrl+u", "f":
 		var cmd tea.Cmd
 		m.logs, cmd = m.logs.Update(k)
 		return m, cmd
 	case "esc":
-		if m.focus == focusPorts && m.system.Query() != "" {
-			return m.handlePanelKey(k)
-		}
 		if m.detail {
 			m.detail = false
 			return m, nil
@@ -394,29 +393,77 @@ func (m Model) runAction(key string) (tea.Model, tea.Cmd) {
 	return m, doAction(m.client, verb, sel.Name)
 }
 
-func (m Model) handlePaletteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+// handleSearchKey drives the one search box. Enter goes to the match and
+// nothing else: the old palette started a stopped command on enter, which is
+// too much to do by accident from a box that also lists ports and log lines.
+func (m Model) handleSearchKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
-		m.palette.Close()
+		m.search.Close()
 		m.overlay = overlayNone
 		return m, nil
 	case "enter":
-		sel, ok := m.palette.Highlighted()
-		m.palette.Close()
+		sel, ok := m.search.Selected()
+		query := m.search.Query()
+		m.search.Close()
 		m.overlay = overlayNone
 		if !ok {
 			return m, nil
 		}
-		m.focus = focusCommands
-		m.table.SelectName(sel.Name)
-		cmds := []tea.Cmd{m.syncStream()}
-		if sel.State != manager.Running && sel.State != manager.Starting {
-			cmds = append(cmds, doAction(m.client, "start", sel.Name))
+		switch sel.kind {
+		case kindPort:
+			m.focus = focusPorts
+			m.system.SelectPort(sel.port)
+			m.layout()
+			return m, nil
+		case kindLog:
+			m.focus = focusCommands
+			m.overlay = overlayLog
+			m.logs.ApplyFilter(query)
+			m.layout()
+			return m, nil
+		default:
+			m.focus = focusCommands
+			m.table.SelectName(sel.name)
+			m.layout()
+			return m, m.syncStream()
 		}
-		return m, tea.Batch(cmds...)
 	}
 	var cmd tea.Cmd
-	m.palette, cmd = m.palette.Update(k)
+	m.search, cmd = m.search.Update(k)
+	return m, cmd
+}
+
+// handleLogKey drives the full log view, which is where the log filter lives
+// now: the pane beside the panels is a preview, too short to filter usefully.
+func (m Model) handleLogKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.logs.FilterEditing() {
+		var cmd tea.Cmd
+		m.logs, cmd = m.logs.Update(k)
+		return m, cmd
+	}
+	switch k.String() {
+	case "esc":
+		// One esc drops the filter, the next closes the view: leaving a
+		// filter applied behind a closed view hides lines you never see set.
+		if m.logs.Query() != "" {
+			var cmd tea.Cmd
+			m.logs, cmd = m.logs.Update(k)
+			return m, cmd
+		}
+		m.overlay = overlayNone
+		m.layout()
+		return m, nil
+	case "o", "q":
+		m.overlay = overlayNone
+		m.layout()
+		return m, nil
+	case "?":
+		m.overlay = overlayHelp
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.logs, cmd = m.logs.Update(k)
 	return m, cmd
 }
 
@@ -488,7 +535,12 @@ func (m *Model) layout() {
 	})
 	m.system.SetSize(m.sideW-2, m.portsH-2)
 	m.system.SetFocused(m.focus == focusPorts)
-	m.logs.SetSize(maxInt(m.mainW-2, 1), maxInt(m.mainH-1, 2))
+	if m.overlay == overlayLog {
+		// The full log view owns the whole body, not the main pane's column.
+		m.logs.SetSize(maxInt(m.width-2, 1), maxInt(m.bodyH-1, 2))
+	} else {
+		m.logs.SetSize(maxInt(m.mainW-2, 1), maxInt(m.mainH-1, 2))
+	}
 }
 
 func maxInt(a, b int) int {
@@ -543,6 +595,12 @@ func (m Model) bottom() string {
 	if m.status != "" && m.now().Sub(m.statusAt) < statusLife {
 		return truncate(" "+m.status, m.width)
 	}
+	switch m.overlay {
+	case overlaySearch:
+		return keyBarScope(m.width, scopeSearch)
+	case overlayLog:
+		return keyBarScope(m.width, scopeLog)
+	}
 	return keyBar(m.width, m.focus)
 }
 
@@ -552,6 +610,52 @@ func (m Model) View() string {
 	}
 	if m.overlay == overlayForm {
 		body := m.form.View(minInt(m.width, 56), minInt(m.bodyH, m.form.Height()))
+		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
+	}
+	if m.overlay == overlaySearch {
+		w := clampInt(m.width*2/3, 40, 90)
+		h := clampInt(len(m.search.matches)+3, 6, m.bodyH)
+		box := panelView(panelSpec{
+			Title:   "Search",
+			Width:   w,
+			Height:  h,
+			Focused: true,
+			Rows:    strings.Split(m.search.View(w-2, h-2), "\n"),
+		})
+		body := lipgloss.Place(m.width, m.bodyH, lipgloss.Center, lipgloss.Center, box)
+		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
+	}
+	if m.overlay == overlayLog {
+		body := panelView(panelSpec{
+			Title:   m.logs.Title(),
+			Width:   m.width,
+			Height:  m.bodyH,
+			Focused: true,
+			Rows:    strings.Split(m.logs.Body(), "\n"),
+		})
+		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
+	}
+	if m.overlay == overlaySearch {
+		w := clampInt(m.width*2/3, 40, 90)
+		h := clampInt(len(m.search.matches)+3, 6, m.bodyH)
+		box := panelView(panelSpec{
+			Title:   "Search",
+			Width:   w,
+			Height:  h,
+			Focused: true,
+			Rows:    strings.Split(m.search.View(w-2, h-2), "\n"),
+		})
+		body := lipgloss.Place(m.width, m.bodyH, lipgloss.Center, lipgloss.Center, box)
+		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
+	}
+	if m.overlay == overlayLog {
+		body := panelView(panelSpec{
+			Title:   m.logs.Title(),
+			Width:   m.width,
+			Height:  m.bodyH,
+			Focused: true,
+			Rows:    strings.Split(m.logs.Body(), "\n"),
+		})
 		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
 	}
 	if m.overlay == overlayConfirm {
@@ -571,22 +675,12 @@ func (m Model) View() string {
 	}, "\n")
 }
 
-// sidebar stacks the three panels, or shows the palette in their place.
+// sidebar stacks the three panels.
 func (m Model) sidebar() string {
 	// Focus is applied here rather than in layout(), which only runs on a
 	// resize: a cursor drawn from a stale flag made two panels look live.
 	m.table.SetFocused(m.focus == focusCommands)
 	m.system.SetFocused(m.focus == focusPorts)
-
-	if m.overlay == overlayPalette {
-		return panelView(panelSpec{
-			Title:   "Palette",
-			Width:   m.sideW,
-			Height:  m.bodyH,
-			Focused: true,
-			Rows:    strings.Split(m.palette.View(m.sideW-2, m.bodyH-2), "\n"),
-		})
-	}
 
 	status := panelView(panelSpec{
 		Title:    "Status",
@@ -711,6 +805,15 @@ func gitRoot(dir string) (string, bool) {
 // path means nothing.
 func remoteClient(c *client.Client) bool {
 	return !strings.HasPrefix(c.Addr(), "unix://")
+}
+
+// clampInt keeps v inside [lo, hi]; the search box sizes itself from the
+// terminal and from how many matches there are, and both can be extreme.
+func clampInt(v, lo, hi int) int {
+	if hi < lo {
+		hi = lo
+	}
+	return minInt(maxInt(v, lo), hi)
 }
 
 func minInt(a, b int) int {

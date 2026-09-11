@@ -164,46 +164,26 @@ func TestHelpOverlaySwallowsKeys(t *testing.T) {
 	}
 }
 
-func TestPaletteOpensStartsAndSelects(t *testing.T) {
+func TestPKeyOpensTheSearchBoxAndSelects(t *testing.T) {
 	m := modelWithRows(t, "proxy", "app:api")
 
 	m, _ = step(t, m, key("p"))
-	if m.overlay != overlayPalette {
-		t.Fatal("p should open the palette")
+	if m.overlay != overlaySearch {
+		t.Fatal("p should open the search box")
 	}
 	for _, r := range "api" {
 		m, _ = step(t, m, key(string(r)))
 	}
 	if !strings.Contains(m.View(), "app:api") {
-		t.Fatalf("palette not rendered:\n%s", m.View())
+		t.Fatalf("search box not rendered:\n%s", m.View())
 	}
 
-	m, cmd := step(t, m, key("enter"))
+	m, _ = step(t, m, key("enter"))
 	if m.overlay != overlayNone || m.focus != focusCommands {
-		t.Fatal("enter should close the palette and focus Commands")
+		t.Fatal("enter should close the search box and focus Commands")
 	}
 	if got, _ := m.table.Selected(); got.Name != "app:api" {
 		t.Fatalf("selected = %q, want app:api", got.Name)
-	}
-	if cmd == nil {
-		t.Fatal("enter on a stopped command should start it")
-	}
-}
-
-func TestPaletteEnterOnARunningCommandOnlySelects(t *testing.T) {
-	m, _, _ := newTestModel(t, map[string]config.Command{"tick": sleeper()})
-	m, _ = step(t, m, statusMsg{{Name: "tick", State: manager.Running, PID: 5}})
-
-	m, _ = step(t, m, key("p"))
-	m, cmd := step(t, m, key("enter"))
-
-	if got, _ := m.table.Selected(); got.Name != "tick" {
-		t.Fatalf("selected = %q", got.Name)
-	}
-	if cmd != nil {
-		if _, isAction := cmd().(actionDoneMsg); isAction {
-			t.Fatal("enter on a running command must not start it again")
-		}
 	}
 }
 
@@ -216,16 +196,17 @@ func TestPaletteEscCloses(t *testing.T) {
 	}
 }
 
-func TestSlashFiltersTheMainPaneWithoutMovingFocus(t *testing.T) {
+func TestTheLogViewFiltersWithoutMovingFocus(t *testing.T) {
 	m := modelWithRows(t, "a")
 	m, _ = step(t, m, logTailMsg{name: "a", lines: []string{"one", "two"}})
 
+	m, _ = step(t, m, key("o"))
 	m, _ = step(t, m, key("/"))
 	if !m.logs.FilterEditing() {
-		t.Fatal("/ should open the filter input")
+		t.Fatal("/ should open the filter input inside the log view")
 	}
 	if m.focus != focusCommands {
-		t.Fatal("/ should not move panel focus")
+		t.Fatal("the log view should not move panel focus")
 	}
 
 	m, _ = step(t, m, key("o"))
@@ -261,6 +242,7 @@ func TestScrollKeysReachTheMainPaneFromAnyPanel(t *testing.T) {
 
 func TestQIsLiteralWhileAnInputIsOpen(t *testing.T) {
 	m := modelWithRows(t, "a")
+	m, _ = step(t, m, key("o"))
 	m, _ = step(t, m, key("/"))
 	m, cmd := step(t, m, key("q"))
 	if cmd != nil {
