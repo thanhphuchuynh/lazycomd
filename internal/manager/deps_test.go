@@ -87,3 +87,24 @@ func TestStartWithDepsUnknownCommand(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// TestStartWithDepsStillConflictsOnTheRequestedCommand guards the difference
+// between the requested command and its dependencies: a running dependency is
+// left alone, but starting a command that is already running is a conflict
+// whether or not dependencies were asked for.
+func TestStartWithDepsStillConflictsOnTheRequestedCommand(t *testing.T) {
+	m := testManager(t, map[string]config.Command{
+		"db":  {Cmd: []string{"sleep", "30"}, Cwd: "/tmp"},
+		"api": {Cmd: []string{"sleep", "30"}, Cwd: "/tmp", DependsOn: []string{"db"}},
+	})
+	defer m.Shutdown()
+
+	if err := m.StartWithDeps("api"); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "api", Running)
+
+	if err := m.StartWithDeps("api"); !errors.Is(err, ErrWrongState) {
+		t.Fatalf("err = %v, want ErrWrongState", err)
+	}
+}
