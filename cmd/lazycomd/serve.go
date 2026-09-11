@@ -18,6 +18,7 @@ import (
 	"github.com/tphuc/lazycomd/internal/api"
 	"github.com/tphuc/lazycomd/internal/client"
 	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/tphuc/lazycomd/internal/configw"
 	"github.com/tphuc/lazycomd/internal/manager"
 	"github.com/tphuc/lazycomd/internal/paths"
 	"github.com/tphuc/lazycomd/internal/probe"
@@ -56,9 +57,14 @@ func runServe(args []string) int {
 	defer stopProbe()
 	sampler.Start(probeCtx)
 
-	srv := api.NewServer(mgr, token, func() (*config.Config, error) {
-		return config.Load(*cfgPath)
-	}, sampler)
+	srv := api.New(api.Options{
+		Manager:    mgr,
+		Token:      token,
+		Reload:     func() (*config.Config, error) { return config.Load(*cfgPath) },
+		Sampler:    sampler,
+		ConfigPath: *cfgPath,
+		Writers:    configw.NewRegistry(),
+	})
 
 	sock := paths.SocketPath()
 	ul, err := listenUnix(sock)

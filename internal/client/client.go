@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tphuc/lazycomd/internal/config"
 	"github.com/tphuc/lazycomd/internal/manager"
 	"github.com/tphuc/lazycomd/internal/paths"
 	"github.com/tphuc/lazycomd/internal/probe"
@@ -225,4 +226,40 @@ func (c *Client) Addr() string { return c.addr }
 func (c *Client) System() (probe.Snapshot, error) {
 	var out probe.Snapshot
 	return out, c.do(context.Background(), "GET", "/v1/system", nil, &out)
+}
+
+// CommandConfig returns a command's full spec, including fields no UI shows.
+// PUT replaces, so an editor must read this first and send back what it does
+// not change.
+func (c *Client) CommandConfig(name string) (config.Command, error) {
+	var out config.Command
+	path := "/v1/commands/" + url.PathEscape(name) + "/config"
+	return out, c.do(context.Background(), "GET", path, nil, &out)
+}
+
+// Projects maps each registered project's basename to its directory.
+func (c *Client) Projects() (map[string]string, error) {
+	var out map[string]string
+	return out, c.do(context.Background(), "GET", "/v1/projects", nil, &out)
+}
+
+// Create adds a command to the config and returns its new status.
+func (c *Client) Create(name string, cmd config.Command) (manager.Status, error) {
+	var out manager.Status
+	body := struct {
+		Name string `json:"name"`
+		config.Command
+	}{Name: name, Command: cmd}
+	return out, c.do(context.Background(), "POST", "/v1/commands", body, &out)
+}
+
+// Update replaces a command's whole spec.
+func (c *Client) Update(name string, cmd config.Command) (manager.Status, error) {
+	var out manager.Status
+	return out, c.do(context.Background(), "PUT", "/v1/commands/"+url.PathEscape(name), cmd, &out)
+}
+
+// Delete removes a command from the config, stopping it if it was running.
+func (c *Client) Delete(name string) error {
+	return c.do(context.Background(), "DELETE", "/v1/commands/"+url.PathEscape(name), nil, nil)
 }

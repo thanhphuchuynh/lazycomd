@@ -54,9 +54,12 @@ func testAPI(t *testing.T, cmds map[string]config.Command) (*manager.Manager, *h
 	m.SettleDelay = 5 * time.Millisecond
 	t.Cleanup(m.Shutdown)
 
-	s := NewServer(m, "", func() (*config.Config, error) {
-		return &config.Config{Commands: cmds}, nil
-	}, nil)
+	s := New(Options{
+		Manager: m,
+		Reload: func() (*config.Config, error) {
+			return &config.Config{Commands: cmds}, nil
+		},
+	})
 	return m, serveUnix(t, s.Handler())
 }
 

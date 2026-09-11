@@ -4,6 +4,8 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+
+	"github.com/tphuc/lazycomd/internal/config"
 )
 
 // AuthHandler is the token-protected handler for the optional TCP listener.
@@ -28,14 +30,22 @@ func tokenMW(token string, next http.Handler) http.Handler {
 // doReload re-reads the config from disk and applies the diff. A broken
 // config is a 400 and leaves the running config untouched.
 func (s *Server) doReload(w http.ResponseWriter, _ *http.Request) {
-	cfg, err := s.reload()
-	if err != nil {
+	if _, err := s.applyReload(); err != nil {
 		writeJSON(w, http.StatusBadRequest, errBody(err))
 		return
 	}
-	if err := s.mgr.Reload(cfg); err != nil {
-		s.fail(w, err)
-		return
+	writeJSON(w, http.StatusOK, s.enrich(s.mgr.List()))
+}
+
+// applyReload re-reads the config and applies it to the manager. Both the
+// reload endpoint and every write land here.
+func (s *Server) applyReload() (*config.Config, error) {
+	cfg, err := s.reload()
+	if err != nil {
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, s.mgr.List())
+	if err := s.mgr.Reload(cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }

@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/tphuc/lazycomd/internal/client"
+	"github.com/tphuc/lazycomd/internal/config"
 	"github.com/tphuc/lazycomd/internal/manager"
 	"github.com/tphuc/lazycomd/internal/probe"
 )
@@ -130,5 +131,76 @@ func fetchSystem(c *client.Client) tea.Cmd {
 			return systemErrMsg{err: err}
 		}
 		return systemMsg(snap)
+	}
+}
+
+// commandConfigMsg carries a command's full spec, fetched before an edit.
+type commandConfigMsg struct {
+	name string
+	cmd  config.Command
+}
+
+// formSavedMsg is a successful create or update.
+type formSavedMsg struct{ status manager.Status }
+
+// formErrMsg is a rejected one. The form stays open with its input.
+type formErrMsg struct{ err error }
+
+// projectsMsg carries the registered projects, for the folder prefill.
+type projectsMsg map[string]string
+
+// deletedMsg is a command removed from the config.
+type deletedMsg struct{ name string }
+
+// fetchCommandConfig reads a command's whole spec. PUT replaces, so an edit
+// must send back the fields the form does not show.
+func fetchCommandConfig(c *client.Client, name string) tea.Cmd {
+	return func() tea.Msg {
+		cmd, err := c.CommandConfig(name)
+		if err != nil {
+			return formErrMsg{err: err}
+		}
+		return commandConfigMsg{name: name, cmd: cmd}
+	}
+}
+
+// saveCommand creates or replaces a command in the config.
+func saveCommand(c *client.Client, editing bool, name string, cmd config.Command) tea.Cmd {
+	return func() tea.Msg {
+		var (
+			st  manager.Status
+			err error
+		)
+		if editing {
+			st, err = c.Update(name, cmd)
+		} else {
+			st, err = c.Create(name, cmd)
+		}
+		if err != nil {
+			return formErrMsg{err: err}
+		}
+		return formSavedMsg{status: st}
+	}
+}
+
+// deleteCommand removes a command from the config file.
+func deleteCommand(c *client.Client, name string) tea.Cmd {
+	return func() tea.Msg {
+		if err := c.Delete(name); err != nil {
+			return formErrMsg{err: err}
+		}
+		return deletedMsg{name: name}
+	}
+}
+
+// fetchProjects reads the registered projects for the folder prefill. A
+// failure is not worth a banner: the prefill just stays local.
+func fetchProjects(c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		p, err := c.Projects()
+		if err != nil {
+			return projectsMsg(nil)
+		}
+		return projectsMsg(p)
 	}
 }

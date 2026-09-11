@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 
 	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/tphuc/lazycomd/internal/configw"
 	"github.com/tphuc/lazycomd/internal/manager"
 	"github.com/tphuc/lazycomd/internal/probe"
 )
@@ -21,16 +22,12 @@ const maxBody = 1 << 16
 // Server holds the manager plus the config reloader the /v1/reload endpoint
 // calls.
 type Server struct {
-	mgr    *manager.Manager
-	token  string
-	reload func() (*config.Config, error)
-	probe  *probe.Sampler
-}
-
-// NewServer builds a Server. token is used only by AuthHandler. sampler may be
-// nil, in which case the probe fields are simply absent.
-func NewServer(mgr *manager.Manager, token string, reload func() (*config.Config, error), sampler *probe.Sampler) *Server {
-	return &Server{mgr: mgr, token: token, reload: reload, probe: sampler}
+	mgr     *manager.Manager
+	token   string
+	reload  func() (*config.Config, error)
+	probe   *probe.Sampler
+	cfgPath string
+	writers *configw.Registry
 }
 
 // Handler is the unauthenticated handler for the unix socket, where file
@@ -49,6 +46,11 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /v1/commands/{name}/logs/stream", s.stream)
 	mux.HandleFunc("POST /v1/reload", s.doReload)
 	mux.HandleFunc("GET /v1/system", s.system)
+	mux.HandleFunc("GET /v1/projects", s.projects)
+	mux.HandleFunc("GET /v1/commands/{name}/config", s.commandConfig)
+	mux.HandleFunc("POST /v1/commands", s.createCommand)
+	mux.HandleFunc("PUT /v1/commands/{name}", s.updateCommand)
+	mux.HandleFunc("DELETE /v1/commands/{name}", s.deleteCommand)
 	return mux
 }
 

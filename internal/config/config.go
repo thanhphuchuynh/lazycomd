@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -27,17 +28,17 @@ const (
 
 // Command is one configured command.
 type Command struct {
-	Cmd       []string          `yaml:"cmd"`
-	Cwd       string            `yaml:"cwd"`
-	Env       map[string]string `yaml:"env"`
-	Shell     bool              `yaml:"shell"`
-	Restart   Restart           `yaml:"restart"`
-	Autostart bool              `yaml:"autostart"`
-	Log       bool              `yaml:"log"`
-	Size      int               `yaml:"size"`
-	DependsOn []string          `yaml:"depends_on"`
-	Health    string            `yaml:"health"`
-	Port      int               `yaml:"port"`
+	Cmd       []string          `yaml:"cmd" json:"cmd"`
+	Cwd       string            `yaml:"cwd" json:"cwd,omitempty"`
+	Env       map[string]string `yaml:"env" json:"env,omitempty"`
+	Shell     bool              `yaml:"shell" json:"shell,omitempty"`
+	Restart   Restart           `yaml:"restart" json:"restart,omitempty"`
+	Autostart bool              `yaml:"autostart" json:"autostart,omitempty"`
+	Log       bool              `yaml:"log" json:"log,omitempty"`
+	Size      int               `yaml:"size" json:"size,omitempty"`
+	DependsOn []string          `yaml:"depends_on" json:"depends_on,omitempty"`
+	Health    string            `yaml:"health" json:"health,omitempty"`
+	Port      int               `yaml:"port" json:"port,omitempty"`
 }
 
 // File is one YAML file on disk. Listen, TokenFile and Projects are
@@ -51,13 +52,17 @@ type File struct {
 
 // ParseFile decodes one YAML file, rejecting unknown fields.
 func ParseFile(path string) (*File, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	return ParseBytes(data, path)
+}
 
-	dec := yaml.NewDecoder(f)
+// ParseBytes decodes YAML that is already in memory. name appears in errors,
+// so a spliced buffer can be validated before it is written anywhere.
+func ParseBytes(data []byte, name string) (*File, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 
 	var out File
@@ -65,7 +70,7 @@ func ParseFile(path string) (*File, error) {
 		if errors.Is(err, io.EOF) {
 			return &File{Commands: map[string]Command{}}, nil
 		}
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	if out.Commands == nil {
 		out.Commands = map[string]Command{}

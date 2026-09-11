@@ -149,3 +149,42 @@ func keys(c *Config) []string {
 	}
 	return out
 }
+
+func TestLoadKeepsTheProjectMap(t *testing.T) {
+	g := tree(t, map[string]string{
+		"config.yaml":           "projects:\n  - @ROOT@/scraper\ncommands: {}\n",
+		"scraper/lazycomd.yaml": "commands:\n  api:\n    cmd: [\"sleep\", \"1\"]\n",
+	})
+	cfg, err := Load(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, ok := cfg.Projects["scraper"]
+	if !ok {
+		t.Fatalf("Projects = %v, want a scraper entry", cfg.Projects)
+	}
+	if !strings.HasSuffix(dir, "/scraper") {
+		t.Fatalf("Projects[scraper] = %q, want the project directory", dir)
+	}
+	if len(cfg.Projects) != 1 {
+		t.Fatalf("Projects = %v, want exactly one entry", cfg.Projects)
+	}
+}
+
+func TestParseBytes(t *testing.T) {
+	f, err := ParseBytes([]byte("commands:\n  a:\n    cmd: [\"x\"]\n"), "memory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Commands) != 1 {
+		t.Fatalf("commands = %v", f.Commands)
+	}
+
+	_, err = ParseBytes([]byte("listten: 1\n"), "spliced.yaml")
+	if err == nil || !strings.Contains(err.Error(), "spliced.yaml") {
+		t.Fatalf("err = %v, want it to name the buffer", err)
+	}
+}
