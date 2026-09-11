@@ -46,6 +46,7 @@ Run `lazycomd` with no arguments:
 | `Esc` | log pane | clear the filter, else back to the table |
 | `Enter` | palette | start the command and select it |
 | `Esc` | palette | close the palette |
+| `d` | anywhere | ports view |
 | `?` | anywhere | help overlay |
 | `q` `Ctrl-C` | anywhere | quit (the daemon keeps running) |
 
@@ -80,7 +81,17 @@ commands:
     log: true              # also tee output to ~/.local/state/lazycomd/logs/
     size: 262144           # ring buffer bytes
     depends_on: []         # started first, in order
+    port: 3000             # the port this command means to bind
+    health: http://localhost:3000/healthz   # probed every 10s while running
 ```
+
+`health:` is polled every 10s while the command is running: a GET with a 2s
+timeout, any 2xx is healthy, redirects are not followed. It is a display
+signal only — `depends_on` still uses spawned-plus-200ms readiness.
+
+`port:` declares the port the command means to bind, so the dashboard can tell
+you when something else is holding it. With `health:` set and `port:` unset,
+the port is taken from the health URL.
 
 A project's `lazycomd.yaml` holds a `commands:` block only. Its commands are
 namespaced by the project directory's basename: `scraper:api`. Two project
@@ -135,10 +146,12 @@ TCP listener that requires `Authorization: Bearer <token>`.
 | `GET /v1/commands/{name}/logs` | `?tail=200` (max 10000) | array of lines |
 | `GET /v1/commands/{name}/logs/stream` | | SSE, `data: <line>` |
 | `POST /v1/reload` | | array of status objects |
+| `GET /v1/system` | | ports, vitals, health and port conflicts |
 
 A status object: `name`, `state` (`stopped`, `starting`, `running`,
 `stopping`, `failed`), `pid`, `uptime_sec`, `exit_code`, `restarts`,
-`spec_dirty`, `depends_on`.
+`spec_dirty`, `depends_on`, plus `cpu`, `mem_mb` and `health` when the probe
+sampler has measured them.
 
 Errors are `{"error":"..."}` with 400 (malformed request or broken config),
 401 (bad token), 404 (unknown command), 409 (illegal in the current state) or
@@ -147,6 +160,32 @@ Errors are `{"error":"..."}` with 400 (malformed request or broken config),
 ```bash
 curl --unix-socket ~/.local/state/lazycomd/lazycomd.sock http://unix/v1/commands
 ```
+
+### Dashboard
+
+`d` opens the ports view:
+
+```
+ ports — sampled 2s ago
+ ⚠ 3000 wanted by web — held by node (pid 51192)
+
+ PORT   ADDR       PID     PROCESS      OWNER
+ 3000 ⚠ 127.0.0.1  51192   node
+ 5432   *          1183    postgres
+ 7777   127.0.0.1  54405   lazycomd     daemon
+```
+
+`OWNER` is the lazycomd command whose process group holds the socket, so you
+can tell your own listener from somebody else's. `d`, `Esc` or `q` closes the
+view; `j`/`k` and `Ctrl-D`/`Ctrl-U` scroll it.
+
+The command table gains a health dot plus CPU and MEM columns (the latter two
+need a terminal at least 110 columns wide). CPU is percent of one core, summed
+across the command's whole process tree, so a busy multithreaded process
+legitimately reads above 100%.
+
+Ports come from `lsof`, falling back to `ss`. On a machine with neither, the
+view says so and the other signals keep working.
 
 ## Behavior worth knowing
 
@@ -166,6 +205,9 @@ curl --unix-socket ~/.local/state/lazycomd/lazycomd.sock http://unix/v1/commands
   one previous generation as `<name>.log.1`.
 - **Commands get pipes, not a TTY.** Anything that needs a terminal will
   behave as though piped.
+- **A contested port is reported either way.** A command whose port is held by
+  something else is flagged whether that command is running or dead — the dead
+  case is usually why it died.
 - **One daemon at a time.** The socket is the lock: a second `serve` prints
   `already running` and exits 1, while a stale socket is cleared.
 
