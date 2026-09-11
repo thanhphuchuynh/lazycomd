@@ -155,6 +155,8 @@ func helpOverlay(width, height int) string {
 		styleDim.Render("● healthy · ○ not answering · blank means no health: url"),
 		styleDim.Render("running* means the config changed; it applies on the"),
 		styleDim.Render("command's next start"),
+		styleDim.Render("the mouse works too: click a panel or a row to go"),
+		styleDim.Render("there, the wheel scrolls whatever is under it"),
 	}
 	footer := styleDim.Render("?, esc or q closes this help")
 

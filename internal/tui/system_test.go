@@ -113,3 +113,15 @@ func TestPortsViewEmpty(t *testing.T) {
 		t.Fatalf("empty view should say so:\n%s", s.View())
 	}
 }
+
+func TestPortsSayTheyAreViewOnly(t *testing.T) {
+	now := time.Now()
+	s := newTestSystem(t, snapshotFixture(now), now)
+
+	if sub := s.Subtitle(); !strings.Contains(sub, "view only") {
+		t.Fatalf("the ports panel does not say it is view only: %q", sub)
+	}
+	if d := strings.Join(s.Detail(), "\n"); !strings.Contains(d, "view only") {
+		t.Fatalf("the port detail does not say it is view only:\n%s", d)
+	}
+}

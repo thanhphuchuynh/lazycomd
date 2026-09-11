@@ -188,6 +188,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -758,7 +761,7 @@ func (m Model) mainPane() string {
 // Run starts the TUI and blocks until the user quits.
 func Run(c *client.Client) error {
 	s := &sink{}
-	p := tea.NewProgram(New(c, s), tea.WithAltScreen())
+	p := tea.NewProgram(New(c, s), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	s.fn = p.Send
 
 	final, err := p.Run()

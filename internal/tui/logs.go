@@ -145,6 +145,13 @@ func (l logsModel) Update(msg tea.Msg) (logsModel, tea.Cmd) {
 		default:
 			var cmd tea.Cmd
 			l.filter.input, cmd = l.filter.input.Update(msg)
+			// Filter as you type: the count in the prompt is the feedback
+			// that tells you whether the query is any good.
+			l.filter.query = l.filter.input.Value()
+			l.refresh()
+			if l.follow {
+				l.vp.GotoBottom()
+			}
 			return l, cmd
 		}
 		return l, nil
@@ -205,10 +212,19 @@ func (l logsModel) Title() string {
 // draws its own border.
 func (l logsModel) Body() string {
 	body := l.vp.View()
-	if l.filter.editing {
-		body += "\n" + l.filter.input.View()
+	if !l.filter.editing {
+		return body
 	}
-	return body
+	// The viewport already fills the pane, so the input needs a line taken
+	// from it: appending one pushed the input past the bottom border, where
+	// nothing showed while you typed.
+	lines := strings.Split(body, "\n")
+	if len(lines) > 1 {
+		lines = lines[1:] // drop the oldest visible line, keep the newest
+	}
+	prompt := styleHeader.Render("filter ") + l.filter.input.View() +
+		styleDim.Render(fmt.Sprintf("  %d of %d · enter keeps it · esc clears", l.filter.matches, len(l.lines)))
+	return strings.Join(append(lines, prompt), "\n")
 }
 
 func (l logsModel) View() string {

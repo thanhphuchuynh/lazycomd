@@ -16,7 +16,8 @@ type filterState struct {
 
 func newFilter() filterState {
 	ti := textinput.New()
-	ti.Prompt = "/"
+	// The prompt is the word "filter" the log view draws beside it.
+	ti.Prompt = ""
 	ti.CharLimit = 120
 	return filterState{input: ti}
 }

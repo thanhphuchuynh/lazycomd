@@ -64,6 +64,15 @@ func (s *systemModel) SetSnapshot(snap probe.Snapshot) {
 	s.clamp()
 }
 
+// ClickRow puts the cursor on the nth port row currently drawn.
+func (s *systemModel) ClickRow(row int) {
+	if i := s.offset + row; i < len(s.snap.Ports) {
+		s.cursor = i
+		s.clampCursor()
+		s.clamp()
+	}
+}
+
 // SelectPort puts the cursor on one port, for a jump from the search box.
 func (s *systemModel) SelectPort(want probe.Port) {
 	for i, p := range s.snap.Ports {
@@ -131,11 +140,19 @@ func (s systemModel) Subtitle() string {
 	if age >= staleAfter {
 		return fmt.Sprintf("stale %ds", int(age.Seconds()))
 	}
+	// The tag has to survive a narrow sidebar, where the panel title bar
+	// drops a subtitle it cannot fit whole.
 	n := len(s.snap.Ports)
 	if c := len(s.contestedPorts()); c > 0 {
-		return fmt.Sprintf("%d, %d ⚠", n, c)
+		if s.width < 34 {
+			return fmt.Sprintf("view · %d, %d ⚠", n, c)
+		}
+		return fmt.Sprintf("view only · %d, %d ⚠", n, c)
 	}
-	return fmt.Sprintf("%d listening", n)
+	if s.width < 34 {
+		return fmt.Sprintf("view · %d", n)
+	}
+	return fmt.Sprintf("view only · %d listening", n)
 }
 
 func (s systemModel) contestedPorts() map[int]bool {
@@ -176,6 +193,8 @@ func (s systemModel) Detail() []string {
 		}
 		out = append(out, "", "conflict", "  "+conflictLine(c))
 	}
+	out = append(out, "", styleDim.Render("view only — every listener on this machine, not just"),
+		styleDim.Render("lazycomd's. Start and stop act on commands, in panel 2."))
 	return out
 }
 

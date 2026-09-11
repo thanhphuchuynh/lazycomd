@@ -115,6 +115,16 @@ func (t tableModel) Selected() (manager.Status, bool) {
 	return t.rows[t.cursor], true
 }
 
+// ClickRow puts the cursor on the nth row currently drawn, which is what a
+// click lands on: the window scrolls, so a screen row is not a row index.
+func (t *tableModel) ClickRow(row int) {
+	start, end := t.window()
+	if i := start + row; i < end {
+		t.cursor = i
+		t.clampCursor()
+	}
+}
+
 // SelectName moves the cursor to name when that command exists.
 func (t *tableModel) SelectName(name string) {
 	for i, r := range t.rows {
