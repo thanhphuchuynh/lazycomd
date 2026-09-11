@@ -16,6 +16,49 @@ Run the daemon in the foreground, or install one of the unit files in
 lazycomd serve
 ```
 
+## The TUI
+
+Run `lazycomd` with no arguments:
+
+```
+ lazycomd — 5 commands · 2 running
+  NAME        STATE    PID    UPTIME  RS │ tick — following
+> tick        running  54405  2m13s    0 │ 1789114081
+  greet       stopped  -      -        0 │ 1789114082
+  app:api     failed   -      -        3 │ 1789114083
+ ? help  q quit  tab switch pane  f follow  / filter  j/k move  s start  S stop
+```
+
+| Key | Where | Action |
+|---|---|---|
+| `j` `k` `↓` `↑` | table | move the cursor |
+| `g` `G` | table | first / last command |
+| `s` | table | start, dependencies first |
+| `S` | table | stop |
+| `r` | table | restart |
+| `p` | table | fuzzy command palette |
+| `Tab` | either pane | switch panes |
+| `j` `k` | log pane | scroll (turns follow off) |
+| `Ctrl-D` `Ctrl-U` | log pane | half page |
+| `g` `G` | log pane | top / bottom |
+| `f` | either pane | toggle follow |
+| `/` | either pane | filter the log pane |
+| `Esc` | log pane | clear the filter, else back to the table |
+| `Enter` | palette | start the command and select it |
+| `Esc` | palette | close the palette |
+| `?` | anywhere | help overlay |
+| `q` `Ctrl-C` | anywhere | quit (the daemon keeps running) |
+
+The filter is a plain substring with smart case: a lowercase query matches
+case-insensitively. A state shown as `running*` means the config changed under
+a reload and the new spec applies on that command's next start.
+
+Quitting the TUI stops nothing. If the daemon goes away, the TUI shows a
+banner and retries every 2s rather than exiting.
+
+With no terminal — `lazycomd | cat`, CI — the bare command prints usage
+instead of launching.
+
 ## Configuration
 
 Global config: `~/.config/lazycomd/config.yaml` (`$XDG_CONFIG_HOME` and
