@@ -58,3 +58,17 @@ func TestHelpOverlayListsEveryBinding(t *testing.T) {
 		t.Fatalf("help overlay should explain the spec-changed asterisk:\n%s", help)
 	}
 }
+
+func TestKeyBarKeepsGlobalKeysWhenSpaceIsTight(t *testing.T) {
+	// At a realistic width the pane-specific hints get dropped first: losing
+	// "q quit" and "? help" is the one thing the bar must never do.
+	bar := keyBar(100, focusTable)
+	for _, want := range []string{"q quit", "? help"} {
+		if !strings.Contains(bar, want) {
+			t.Fatalf("key bar dropped %q at width 100:\n%s", want, bar)
+		}
+	}
+	if got := len([]rune(bar)); got > 100 {
+		t.Fatalf("key bar is %d runes wide, want <= 100", got)
+	}
+}

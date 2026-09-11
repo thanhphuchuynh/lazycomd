@@ -68,16 +68,42 @@ func scopeFor(f focus) scope {
 	}
 }
 
-// keyBar renders the bottom hint line for the focused pane.
+// keyBar renders the bottom hint line for the focused pane. The global keys
+// are laid out first so a narrow terminal drops pane-specific hints rather
+// than "? help" and "q quit", which are the ones you need when lost.
 func keyBar(width int, f focus) string {
 	want := scopeFor(f)
-	parts := make([]string, 0, len(bindings))
+	var scoped, global []string
 	for _, b := range bindings {
-		if b.scope == want || b.scope == scopeGlobal {
-			parts = append(parts, b.key+" "+b.desc)
+		entry := b.key + " " + b.desc
+		switch b.scope {
+		case scopeGlobal:
+			global = append(global, entry)
+		case want:
+			scoped = append(scoped, entry)
 		}
 	}
-	return styleDim.Render(truncate(" "+strings.Join(parts, "  "), width))
+
+	tail := strings.Join(global, "  ")
+	room := width - len([]rune(tail)) - 3 // leading space and separator
+
+	head := ""
+	for _, entry := range scoped {
+		next := entry
+		if head != "" {
+			next = head + "  " + entry
+		}
+		if len([]rune(next)) > room {
+			break
+		}
+		head = next
+	}
+
+	bar := " " + head
+	if head != "" {
+		bar += "  "
+	}
+	return styleDim.Render(truncate(bar+tail, width))
 }
 
 // helpOverlay renders the full keymap, grouped by scope.
