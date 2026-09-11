@@ -15,6 +15,7 @@ type Config struct {
 	Listen    string
 	TokenFile string
 	Commands  map[string]Command
+	Projects  map[string]string // project basename -> directory
 }
 
 // Load reads the global config plus every registered project file, merges
@@ -64,6 +65,8 @@ func Load(globalPath string) (*Config, error) {
 			cfg.Commands[ns+":"+n] = c
 		}
 	}
+
+	cfg.Projects = byBase
 
 	if err := cfg.resolveDeps(); err != nil {
 		return nil, err

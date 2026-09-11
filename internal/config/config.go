@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -51,13 +52,17 @@ type File struct {
 
 // ParseFile decodes one YAML file, rejecting unknown fields.
 func ParseFile(path string) (*File, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	return ParseBytes(data, path)
+}
 
-	dec := yaml.NewDecoder(f)
+// ParseBytes decodes YAML that is already in memory. name appears in errors,
+// so a spliced buffer can be validated before it is written anywhere.
+func ParseBytes(data []byte, name string) (*File, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 
 	var out File
@@ -65,7 +70,7 @@ func ParseFile(path string) (*File, error) {
 		if errors.Is(err, io.EOF) {
 			return &File{Commands: map[string]Command{}}, nil
 		}
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	if out.Commands == nil {
 		out.Commands = map[string]Command{}
