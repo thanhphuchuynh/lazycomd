@@ -26,7 +26,7 @@ func testDaemon(t *testing.T, cmds map[string]config.Command) *manager.Manager {
 
 	s := api.NewServer(m, "", func() (*config.Config, error) {
 		return &config.Config{Commands: cmds}, nil
-	})
+	}, nil)
 	sock := filepath.Join(shortDir(t), "s.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {

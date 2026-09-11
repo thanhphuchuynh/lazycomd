@@ -56,7 +56,7 @@ func testAPI(t *testing.T, cmds map[string]config.Command) (*manager.Manager, *h
 
 	s := NewServer(m, "", func() (*config.Config, error) {
 		return &config.Config{Commands: cmds}, nil
-	})
+	}, nil)
 	return m, serveUnix(t, s.Handler())
 }
 

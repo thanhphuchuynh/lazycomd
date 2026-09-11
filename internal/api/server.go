@@ -12,6 +12,7 @@ import (
 
 	"github.com/tphuc/lazycomd/internal/config"
 	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/tphuc/lazycomd/internal/probe"
 )
 
 // maxBody caps a request body; every body this API accepts is tiny.
@@ -23,11 +24,13 @@ type Server struct {
 	mgr    *manager.Manager
 	token  string
 	reload func() (*config.Config, error)
+	probe  *probe.Sampler
 }
 
-// NewServer builds a Server. token is used only by AuthHandler.
-func NewServer(mgr *manager.Manager, token string, reload func() (*config.Config, error)) *Server {
-	return &Server{mgr: mgr, token: token, reload: reload}
+// NewServer builds a Server. token is used only by AuthHandler. sampler may be
+// nil, in which case the probe fields are simply absent.
+func NewServer(mgr *manager.Manager, token string, reload func() (*config.Config, error), sampler *probe.Sampler) *Server {
+	return &Server{mgr: mgr, token: token, reload: reload, probe: sampler}
 }
 
 // Handler is the unauthenticated handler for the unix socket, where file
@@ -45,6 +48,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /v1/commands/{name}/logs", s.logs)
 	mux.HandleFunc("GET /v1/commands/{name}/logs/stream", s.stream)
 	mux.HandleFunc("POST /v1/reload", s.doReload)
+	mux.HandleFunc("GET /v1/system", s.system)
 	return mux
 }
 
@@ -53,7 +57,7 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) list(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.mgr.List())
+	writeJSON(w, http.StatusOK, s.enrich(s.mgr.List()))
 }
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +66,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, st)
+	writeJSON(w, http.StatusOK, s.enrich([]manager.Status{st})[0])
 }
 
 type startBody struct {
