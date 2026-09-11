@@ -23,6 +23,11 @@ func (m *Manager) startLocked(name string) error {
 	if p.State == Running || p.State == Starting {
 		return fmt.Errorf("%w: %s is %s", ErrWrongState, name, p.State)
 	}
+	if p.pending != nil {
+		p.Spec, p.pending = *p.pending, nil
+		p.SpecDirty = false
+		p.Logs = nil // size and log: may have changed; rebuild the buffer
+	}
 	if err := p.ensureLogs(m.logDir); err != nil {
 		return err
 	}
