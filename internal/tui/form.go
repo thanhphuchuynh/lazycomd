@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -202,18 +201,31 @@ func splitCommand(line string) ([]string, bool) {
 func (f formModel) hint() string {
 	switch f.field {
 	case fieldName:
+		if strings.TrimSpace(f.name.Value()) == "" {
+			return "required · app:name puts it in that project"
+		}
 		return "app:name puts it in that project"
 	case fieldCommand:
+		if strings.TrimSpace(f.command.Value()) == "" {
+			return "required · what you would type in a shell"
+		}
 		if _, shell := splitCommand(f.command.Value()); shell {
 			return "shell mode: the whole line goes to sh -c"
 		}
 		return "split on spaces · pipes and $ switch to shell mode"
 	case fieldFolder:
+		if !f.folderTyped && f.folder.Value() != "" {
+			return "suggested from where you launched · blank = ~"
+		}
 		return "where the command runs · blank = ~"
 	default:
 		return "no · on-failure · always"
 	}
 }
+
+// Height is the form's natural height, so the caller does not leave it
+// padded with blank rows.
+func (f formModel) Height() int { return 9 }
 
 func (f formModel) View(width, height int) string {
 	title := "New command"
@@ -221,12 +233,16 @@ func (f formModel) View(width, height int) string {
 		title = "Edit " + f.name.Value()
 	}
 
+	// Inputs get a width so bubbles scrolls a long value; without one a long
+	// folder path ran straight into the border with nothing to say it was cut.
+	avail := maxInt(width-formPrefix-3, 8)
+	f.name.Width, f.command.Width, f.folder.Width = avail, avail, avail
+
 	rows := []string{
-		"",
-		f.row("NAME", f.nameView()),
-		f.row("COMMAND", f.command.View()),
-		f.row("FOLDER", f.folder.View()),
-		f.row("RESTART", f.restartView()),
+		f.row(fieldName, "NAME", f.nameView()),
+		f.row(fieldCommand, "COMMAND", f.command.View()),
+		f.row(fieldFolder, "FOLDER", f.folderView()),
+		f.row(fieldRestart, "RESTART", f.restartView()),
 		"",
 	}
 	if f.err != "" {
@@ -239,9 +255,19 @@ func (f formModel) View(width, height int) string {
 	return panelView(panelSpec{Title: title, Width: width, Height: height, Rows: rows, Focused: true})
 }
 
-func (f formModel) row(label, value string) string {
-	return fmt.Sprintf("  %-9s %s", label, value)
+// row marks the focused field in the gutter and in the label, so focus is
+// visible without relying on the terminal's cursor being mid-blink.
+func (f formModel) row(field formField, label, value string) string {
+	gutter, shown := "  ", label
+	if f.field == field {
+		gutter = "› "
+		shown = styleHeader.Render(label)
+	}
+	return gutter + shown + strings.Repeat(" ", maxInt(9-len(label), 1)) + value
 }
+
+// formPrefix is the width of a row's gutter plus its label column.
+const formPrefix = 11
 
 func (f formModel) nameView() string {
 	if f.editing {
@@ -250,10 +276,30 @@ func (f formModel) nameView() string {
 	return f.name.View()
 }
 
+// folderView shows an untouched suggestion dimmed, so it reads as an offer
+// rather than as something you typed.
+func (f formModel) folderView() string {
+	if !f.folderTyped && f.folder.Value() != "" && f.field != fieldFolder {
+		return styleDim.Render(tail(f.folder.Value(), f.folder.Width))
+	}
+	return f.folder.View()
+}
+
+// restartView keeps the value in the same column whether or not it has focus;
+// it used to shift two places as you tabbed onto it.
 func (f formModel) restartView() string {
 	v := string(restartChoices[f.restart])
 	if f.field == fieldRestart {
 		return "‹ " + v + " ›"
 	}
-	return "  " + v
+	return styleDim.Render("‹ ") + v + styleDim.Render(" ›")
+}
+
+// tail keeps the end of a path, which is the part that identifies it, and
+// marks the cut with a leading ellipsis.
+func tail(s string, width int) string {
+	if width < 4 || len(s) <= width {
+		return s
+	}
+	return "…" + s[len(s)-width+1:]
 }

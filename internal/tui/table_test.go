@@ -186,7 +186,7 @@ func TestViewColumnsFullAndCompact(t *testing.T) {
 
 func TestViewMarksCursorAndDirtySpec(t *testing.T) {
 	tbl := newTable()
-	tbl.SetLayout(tableLayout{Width: 40, Height: 10})
+	tbl.SetLayout(tableLayout{Width: 40, Height: 10, Focused: true})
 	tbl.SetRows([]manager.Status{
 		{Name: "a", State: manager.Running, SpecDirty: true},
 		{Name: "b", State: manager.Stopped},
@@ -309,5 +309,25 @@ func TestCPUAndMemFormatting(t *testing.T) {
 	}
 	if got := formatMem(2048); got != "2.0G" {
 		t.Fatalf("formatMem(2048) = %q, want gigabytes past 1024M", got)
+	}
+}
+
+func TestUnfocusedPanelDimsItsCursor(t *testing.T) {
+	// Two panels drawing a live ">" left it ambiguous which one j and k move.
+	tbl := newTable()
+	tbl.SetRows(rows("a", "b"))
+
+	tbl.SetLayout(tableLayout{Width: 40, Height: 10, Focused: true})
+	if !strings.Contains(tbl.View(), "> a") {
+		t.Fatalf("focused panel should draw a live cursor:\n%s", tbl.View())
+	}
+
+	tbl.SetLayout(tableLayout{Width: 40, Height: 10})
+	blurred := tbl.View()
+	if strings.Contains(blurred, "> a") {
+		t.Fatalf("unfocused panel still draws a live cursor:\n%s", blurred)
+	}
+	if !strings.Contains(blurred, "· a") {
+		t.Fatalf("unfocused panel lost its selection entirely:\n%s", blurred)
 	}
 }

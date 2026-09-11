@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -63,7 +64,7 @@ func New(c *client.Client, s *sink) Model {
 		palette:     newPalette(),
 		system:      newSystem(),
 		statusPanel: newStatus(c.Addr()),
-		form:        newForm(launchDir(), remoteClient(c)),
+		form:        newForm(suggestFolder(), remoteClient(c)),
 		confirm:     newConfirm(),
 		focus:       focusCommands,
 		now:         time.Now,
@@ -206,6 +207,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			name, cmd := m.form.Result()
 			if name == "" {
 				m.form.SetError("name is required")
+				return m, nil
+			}
+			if len(cmd.Cmd) == 0 {
+				m.form.SetError("command is required")
 				return m, nil
 			}
 			return m, saveCommand(m.client, m.form.Editing(), name, cmd)
@@ -431,6 +436,7 @@ func (m *Model) layout() {
 		Wide:    m.sideW >= 46,
 	})
 	m.system.SetSize(m.sideW-2, m.portsH-2)
+	m.system.SetFocused(m.focus == focusPorts)
 	m.logs.SetSize(maxInt(m.mainW-2, 1), maxInt(m.mainH-1, 2))
 }
 
@@ -494,7 +500,7 @@ func (m Model) View() string {
 		return strings.Join([]string{m.header(), helpOverlay(m.width, m.bodyH), m.bottom()}, "\n")
 	}
 	if m.overlay == overlayForm {
-		body := m.form.View(minInt(m.width, 56), minInt(m.bodyH, 12))
+		body := m.form.View(minInt(m.width, 56), minInt(m.bodyH, m.form.Height()))
 		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
 	}
 	if m.overlay == overlayConfirm {
@@ -516,6 +522,11 @@ func (m Model) View() string {
 
 // sidebar stacks the three panels, or shows the palette in their place.
 func (m Model) sidebar() string {
+	// Focus is applied here rather than in layout(), which only runs on a
+	// resize: a cursor drawn from a stale flag made two panels look live.
+	m.table.SetFocused(m.focus == focusCommands)
+	m.system.SetFocused(m.focus == focusPorts)
+
 	if m.overlay == overlayPalette {
 		return panelView(panelSpec{
 			Title:   "Palette",
@@ -599,14 +610,37 @@ func Run(c *client.Client) error {
 	return err
 }
 
-// launchDir is where the TUI was started, which is almost always the project
-// you are adding a command for.
-func launchDir() string {
+// suggestFolder is the folder to offer for a new command: the git root you
+// launched from, else the directory itself. It offers nothing when that would
+// only be your home directory, because a blank folder already means home and
+// a suggestion that repeats the default is noise.
+func suggestFolder() string {
 	wd, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
+	if home, err := os.UserHomeDir(); err == nil && wd == home {
+		return ""
+	}
+	if root, ok := gitRoot(wd); ok {
+		return root
+	}
 	return wd
+}
+
+// gitRoot walks up looking for a .git entry, which is a better guess at "the
+// project" than whichever subdirectory you happened to be standing in.
+func gitRoot(dir string) (string, bool) {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
 }
 
 // remoteClient reports whether the daemon is reached over TCP, where a local

@@ -51,7 +51,20 @@ func TestFormEnterSaves(t *testing.T) {
 		m, _ = step(t, m, key(string(r)))
 	}
 
-	_, cmd := step(t, m, key("enter"))
+	// A name alone is not enough: the command is required too.
+	m2, cmd := step(t, m, key("enter"))
+	if cmd != nil {
+		t.Fatal("enter saved with no command")
+	}
+	if !strings.Contains(m2.View(), "command is required") {
+		t.Fatalf("missing command not explained:\n%s", m2.View())
+	}
+
+	m, _ = step(t, m, key("tab"))
+	for _, r := range "sleep 30" {
+		m, _ = step(t, m, key(string(r)))
+	}
+	_, cmd = step(t, m, key("enter"))
 	if cmd == nil {
 		t.Fatal("enter produced no save command")
 	}

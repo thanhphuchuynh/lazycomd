@@ -21,7 +21,9 @@ type paletteModel struct {
 
 func newPalette() paletteModel {
 	ti := textinput.New()
-	ti.Prompt = "> "
+	// Not ">": that is the selection marker one line below, and two meanings
+	// on one glyph made the input line read as a highlighted row.
+	ti.Prompt = "❯ "
 	ti.CharLimit = 120
 	return paletteModel{input: ti}
 }
