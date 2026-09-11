@@ -44,7 +44,18 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Export static site
-        run: staticmint -start-server -docs website -out _site -site-url https://thanhphuchuynh.github.io/lazycomd
+        run: |
+          # Current mint CLI builds the Next client under
+          # ~/.mintlify/previews/<port>/, not ~/.mintlify/mint/.
+          # staticmint's default client-dir still points at the old path,
+          # which made CI fail with lstat .../.next/static.
+          CLIENT_DIR="$HOME/.mintlify/previews/3000/mint/apps/client"
+          staticmint -start-server \
+            -docs website \
+            -out _site \
+            -client-dir "$CLIENT_DIR" \
+            -wait-tries 90 \
+            -site-url https://thanhphuchuynh.github.io/lazycomd
 
       - uses: actions/configure-pages@v5
 
