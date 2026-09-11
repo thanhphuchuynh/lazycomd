@@ -4,12 +4,18 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"golang.org/x/term"
+
+	"github.com/tphuc/lazycomd/internal/client"
+	"github.com/tphuc/lazycomd/internal/tui"
 )
 
 const usage = `lazycomd - run and supervise long dev commands
 
-usage: lazycomd <command> [flags]
+usage: lazycomd [command] [flags]
 
+  (no command)             open the TUI
   serve                    run the daemon in the foreground
   ls                       list commands and their state
   start <name> [-d]        start a command (-d starts dependencies first)
@@ -27,10 +33,26 @@ environment:
 
 func main() { os.Exit(dispatch(os.Args[1:])) }
 
-func dispatch(args []string) int {
-	if len(args) == 0 {
+// runTUI opens the interactive UI. Without a terminal — a pipe, CI, a test
+// binary — it prints usage instead, so `lazycomd | cat` stays sane.
+func runTUI() int {
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
 		fmt.Fprint(os.Stderr, usage)
 		return 2
+	}
+	c, err := client.Default()
+	if err != nil {
+		return fail(err)
+	}
+	if err := tui.Run(c); err != nil {
+		return fail(err)
+	}
+	return 0
+}
+
+func dispatch(args []string) int {
+	if len(args) == 0 {
+		return runTUI()
 	}
 	switch args[0] {
 	case "serve":
