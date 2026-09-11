@@ -184,6 +184,23 @@ func (s searchModel) Selected() (searchItem, bool) {
 	return s.matches[s.cursor], true
 }
 
+// ClickRow puts the cursor on the nth match drawn in a box with room for
+// that many rows: the box scrolls, so the first drawn row is not always the
+// first match.
+func (s *searchModel) ClickRow(row, room int) {
+	if i := drawStart(s.cursor, room) + row; i >= 0 && i < len(s.matches) {
+		s.cursor = i
+	}
+}
+
+// drawStart is the index of the topmost row drawn, for a cursor and a box.
+func drawStart(cursor, room int) int {
+	if room < 1 || cursor < room {
+		return 0
+	}
+	return cursor - room + 1
+}
+
 // Query is what was typed, which a log result carries into the log filter.
 func (s searchModel) Query() string { return s.input.Value() }
 
@@ -216,10 +233,7 @@ func (s searchModel) View(width, height int) string {
 	}
 
 	room := maxInt(height-1, 1)
-	start := 0
-	if s.cursor >= room {
-		start = s.cursor - room + 1
-	}
+	start := drawStart(s.cursor, room)
 	for i := start; i < len(s.matches) && i-start < room; i++ {
 		m := s.matches[i]
 		marker := "  "

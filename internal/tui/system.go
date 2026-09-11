@@ -64,6 +64,15 @@ func (s *systemModel) SetSnapshot(snap probe.Snapshot) {
 	s.clamp()
 }
 
+// ClickRow puts the cursor on the nth port row currently drawn.
+func (s *systemModel) ClickRow(row int) {
+	if i := s.offset + row; i < len(s.snap.Ports) {
+		s.cursor = i
+		s.clampCursor()
+		s.clamp()
+	}
+}
+
 // SelectPort puts the cursor on one port, for a jump from the search box.
 func (s *systemModel) SelectPort(want probe.Port) {
 	for i, p := range s.snap.Ports {
