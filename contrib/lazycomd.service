@@ -1,0 +1,13 @@
+[Unit]
+Description=lazycomd - run and supervise long dev commands
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/lazycomd serve
+ExecReload=%h/.local/bin/lazycomd reload
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
