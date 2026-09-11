@@ -23,9 +23,12 @@ func testDaemon(t *testing.T, cmds map[string]config.Command) (*client.Client, *
 	m.SettleDelay = 5 * time.Millisecond
 	t.Cleanup(m.Shutdown)
 
-	s := api.NewServer(m, "", func() (*config.Config, error) {
-		return &config.Config{Commands: cmds}, nil
-	}, nil)
+	s := api.New(api.Options{
+		Manager: m,
+		Reload: func() (*config.Config, error) {
+			return &config.Config{Commands: cmds}, nil
+		},
+	})
 
 	// Not t.TempDir(): macOS caps a unix socket path at 104 bytes and the
 	// per-test temp path plus a long test name overruns it.

@@ -24,9 +24,12 @@ func testDaemon(t *testing.T, cmds map[string]config.Command) *manager.Manager {
 	m.SettleDelay = 5 * time.Millisecond
 	t.Cleanup(m.Shutdown)
 
-	s := api.NewServer(m, "", func() (*config.Config, error) {
-		return &config.Config{Commands: cmds}, nil
-	}, nil)
+	s := api.New(api.Options{
+		Manager: m,
+		Reload: func() (*config.Config, error) {
+			return &config.Config{Commands: cmds}, nil
+		},
+	})
 	sock := filepath.Join(shortDir(t), "s.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {

@@ -25,9 +25,13 @@ func testAPIWithProbe(t *testing.T, cmds map[string]config.Command) (*manager.Ma
 	t.Cleanup(cancel)
 	sampler.Start(ctx)
 
-	s := NewServer(m, "", func() (*config.Config, error) {
-		return &config.Config{Commands: cmds}, nil
-	}, sampler)
+	s := New(Options{
+		Manager: m,
+		Reload: func() (*config.Config, error) {
+			return &config.Config{Commands: cmds}, nil
+		},
+		Sampler: sampler,
+	})
 	return m, serveUnix(t, s.Handler()), sampler
 }
 
@@ -92,7 +96,7 @@ func TestCommandsCarryProbeFields(t *testing.T) {
 func TestServerWithoutASamplerStillServes(t *testing.T) {
 	m := manager.New(&config.Config{Commands: map[string]config.Command{"a": sleeper()}}, t.TempDir())
 	t.Cleanup(m.Shutdown)
-	s := NewServer(m, "", func() (*config.Config, error) { return nil, nil }, nil)
+	s := New(Options{Manager: m, Reload: func() (*config.Config, error) { return nil, nil }})
 	c := serveUnix(t, s.Handler())
 
 	if code, body := do(t, c, "GET", "/v1/system", ""); code != 200 {

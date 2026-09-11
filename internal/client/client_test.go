@@ -25,9 +25,13 @@ func daemon(t *testing.T, cmds map[string]config.Command, token string) *Client 
 	m.SettleDelay = 5 * time.Millisecond
 	t.Cleanup(m.Shutdown)
 
-	s := api.NewServer(m, token, func() (*config.Config, error) {
-		return &config.Config{Commands: cmds}, nil
-	}, nil)
+	s := api.New(api.Options{
+		Manager: m,
+		Token:   token,
+		Reload: func() (*config.Config, error) {
+			return &config.Config{Commands: cmds}, nil
+		},
+	})
 	h := s.Handler()
 	if token != "" {
 		h = s.AuthHandler()
