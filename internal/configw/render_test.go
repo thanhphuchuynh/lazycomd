@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 func TestRenderBlockMinimal(t *testing.T) {

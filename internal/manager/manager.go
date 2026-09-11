@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/logbuf"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/logbuf"
 )
 
 // Sentinel errors the API layer maps to HTTP status codes.

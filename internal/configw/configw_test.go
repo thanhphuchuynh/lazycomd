@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 const withComments = `# lazycomd config

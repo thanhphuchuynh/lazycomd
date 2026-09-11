@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/tphuc/lazycomd/internal/client"
+	"github.com/thanhphuchuynh/lazycomd/internal/client"
 )
 
 // sink delivers messages from a goroutine into the bubbletea loop. Run sets

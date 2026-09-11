@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/manager"
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 // statusModel is panel 1: how the daemon and its collectors are doing.

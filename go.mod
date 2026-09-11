@@ -1,4 +1,4 @@
-module github.com/tphuc/lazycomd
+module github.com/thanhphuchuynh/lazycomd
 
 go 1.26.0
 

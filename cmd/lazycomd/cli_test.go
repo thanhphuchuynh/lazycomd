@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/api"
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/api"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 // testDaemon serves a manager over a unix socket and points LAZYCOMD_ADDR at

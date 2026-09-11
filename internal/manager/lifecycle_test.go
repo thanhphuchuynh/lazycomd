@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 func TestStartAutostartStartsDepsFirst(t *testing.T) {

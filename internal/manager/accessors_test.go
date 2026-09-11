@@ -3,7 +3,7 @@ package manager
 import (
 	"testing"
 
-	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 func TestAccessorsCoverTheRightCommands(t *testing.T) {

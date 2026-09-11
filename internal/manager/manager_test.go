@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 // testManager builds a Manager over an in-memory config with test-speed

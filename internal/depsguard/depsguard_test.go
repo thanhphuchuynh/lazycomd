@@ -4,17 +4,19 @@
 package depsguard
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // daemonPkgs are the packages that must stay free of TUI dependencies.
 var daemonPkgs = []string{
-	"github.com/tphuc/lazycomd/internal/config",
-	"github.com/tphuc/lazycomd/internal/manager",
-	"github.com/tphuc/lazycomd/internal/logbuf",
-	"github.com/tphuc/lazycomd/internal/api",
+	"github.com/thanhphuchuynh/lazycomd/internal/config",
+	"github.com/thanhphuchuynh/lazycomd/internal/manager",
+	"github.com/thanhphuchuynh/lazycomd/internal/logbuf",
+	"github.com/thanhphuchuynh/lazycomd/internal/api",
 }
 
 // banned substrings that must not appear in those packages' dependency trees.
@@ -23,6 +25,18 @@ var banned = []string{
 	"charmbracelet/bubbles",
 	"charmbracelet/lipgloss",
 	"muesli/termenv",
+}
+
+func TestModulePath(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, _ := strings.Cut(string(b), "\n")
+	want := "module github.com/thanhphuchuynh/lazycomd"
+	if first != want {
+		t.Fatalf("go.mod first line = %q, want %q", first, want)
+	}
 }
 
 func TestDaemonPackagesHaveNoTUIDependencies(t *testing.T) {

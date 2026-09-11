@@ -15,13 +15,13 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/tphuc/lazycomd/internal/api"
-	"github.com/tphuc/lazycomd/internal/client"
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/configw"
-	"github.com/tphuc/lazycomd/internal/manager"
-	"github.com/tphuc/lazycomd/internal/paths"
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/api"
+	"github.com/thanhphuchuynh/lazycomd/internal/client"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/configw"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/paths"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 // runServe runs the daemon in the foreground. Daemonization belongs to

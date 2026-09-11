@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/api"
-	"github.com/tphuc/lazycomd/internal/client"
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/api"
+	"github.com/thanhphuchuynh/lazycomd/internal/client"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 // testDaemon runs a real manager and API on a unix socket and returns a

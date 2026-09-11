@@ -9,8 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/tphuc/lazycomd/internal/manager"
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 // searchKind is which list an entry came from. It decides what enter does

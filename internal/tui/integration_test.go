@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 // drive runs cmd and feeds every resulting message back into the model,

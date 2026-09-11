@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 func TestStartWithDepsOrdersDepthFirst(t *testing.T) {

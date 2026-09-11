@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/configw"
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/configw"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 // writableAPI serves a real config file that writes actually land in.

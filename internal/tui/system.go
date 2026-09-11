@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 // staleAfter is when a sample stops being worth trusting silently.

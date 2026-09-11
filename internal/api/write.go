@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/configw"
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/configw"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 // errBadRequest marks an error the client caused, for the 400 mapping.

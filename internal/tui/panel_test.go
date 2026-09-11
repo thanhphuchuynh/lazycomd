@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 // runeWidth is what the terminal actually spends on a line, ignoring the

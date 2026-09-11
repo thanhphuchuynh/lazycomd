@@ -1,10 +1,10 @@
 package api
 
 import (
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/configw"
-	"github.com/tphuc/lazycomd/internal/manager"
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/configw"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 // Options is everything a Server needs. Only Manager and Reload are required;

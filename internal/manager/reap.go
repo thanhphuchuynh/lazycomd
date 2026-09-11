@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 // reap waits for one spawned process, records its outcome and applies the

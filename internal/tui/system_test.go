@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 func snapshotFixture(now time.Time) probe.Snapshot {

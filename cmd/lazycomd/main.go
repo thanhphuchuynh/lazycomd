@@ -7,8 +7,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/tphuc/lazycomd/internal/client"
-	"github.com/tphuc/lazycomd/internal/tui"
+	"github.com/thanhphuchuynh/lazycomd/internal/client"
+	"github.com/thanhphuchuynh/lazycomd/internal/tui"
 )
 
 const usage = `lazycomd - run and supervise long dev commands

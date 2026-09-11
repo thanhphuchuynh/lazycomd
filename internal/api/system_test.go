@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/manager"
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 // testAPIWithProbe is testAPI plus a real sampler over the real machine.

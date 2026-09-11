@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/tphuc/lazycomd/internal/manager"
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 // system serves the last sample of the machine's state. Always 200: partial

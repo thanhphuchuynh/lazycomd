@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 func TestAOpensAnEmptyForm(t *testing.T) {

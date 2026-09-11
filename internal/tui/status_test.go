@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/manager"
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 func testStatus(t *testing.T, connected bool, now time.Time) statusModel {

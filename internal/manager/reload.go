@@ -3,7 +3,7 @@ package manager
 import (
 	"reflect"
 
-	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 // Reload applies a freshly loaded config. It never restarts a running

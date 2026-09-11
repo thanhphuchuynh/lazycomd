@@ -13,8 +13,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/client"
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/client"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 // hoistFlags moves flags ahead of positional arguments so both orders work:

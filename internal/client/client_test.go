@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/api"
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/configw"
-	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/api"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/configw"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
 // daemon starts a real manager plus API on a unix socket and returns a client

@@ -18,10 +18,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tphuc/lazycomd/internal/config"
-	"github.com/tphuc/lazycomd/internal/manager"
-	"github.com/tphuc/lazycomd/internal/paths"
-	"github.com/tphuc/lazycomd/internal/probe"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/manager"
+	"github.com/thanhphuchuynh/lazycomd/internal/paths"
+	"github.com/thanhphuchuynh/lazycomd/internal/probe"
 )
 
 // ErrNoDaemon means nothing is listening at the configured address.
