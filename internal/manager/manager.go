@@ -54,6 +54,16 @@ type Process struct {
 	restartTimer    *time.Timer
 }
 
+// HealthView is one health-probe result as the API reports it. The manager
+// never produces these; the API layer fills them from the probe sampler.
+type HealthView struct {
+	URL       string  `json:"url"`
+	OK        bool    `json:"ok"`
+	Status    int     `json:"status,omitempty"`
+	LatencyMS float64 `json:"latency_ms,omitempty"`
+	Error     string  `json:"error,omitempty"`
+}
+
 // Status is the API view of a Process.
 type Status struct {
 	Name      string   `json:"name"`
@@ -64,6 +74,12 @@ type Status struct {
 	Restarts  int      `json:"restarts"`
 	SpecDirty bool     `json:"spec_dirty,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty"`
+
+	// Filled by the API layer from the probe sampler. The manager never sets
+	// these — it knows nothing about CPU, memory or health.
+	CPU    float64     `json:"cpu,omitempty"`
+	MemMB  float64     `json:"mem_mb,omitempty"`
+	Health *HealthView `json:"health,omitempty"`
 }
 
 // Manager holds every command. One mutex guards the whole map; it is never
@@ -172,4 +188,47 @@ func (p *Process) ensureLogs(logDir string) error {
 		return nil
 	}
 	return p.Logs.AttachFile(filepath.Join(logDir, logbuf.FileName(p.Name)))
+}
+
+// RunningPIDs maps each running command to its PID, which is also its process
+// group id. Used by the probe sampler for vitals and port ownership.
+func (m *Manager) RunningPIDs() map[string]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]int, len(m.procs))
+	for name, p := range m.procs {
+		if p.State == Running && p.PID > 0 {
+			out[name] = p.PID
+		}
+	}
+	return out
+}
+
+// HealthURLs maps each running command that configured one to its health URL.
+// Stopped commands are excluded: probing a dead service proves nothing.
+func (m *Manager) HealthURLs() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]string)
+	for name, p := range m.procs {
+		if p.State == Running && p.Spec.Health != "" {
+			out[name] = p.Spec.Health
+		}
+	}
+	return out
+}
+
+// IntendedPorts maps every command that declares one — running or not — to the
+// port it means to bind. A stopped command whose port is held by something
+// else is exactly the conflict worth reporting.
+func (m *Manager) IntendedPorts() map[string]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]int)
+	for name, p := range m.procs {
+		if port := p.Spec.IntendedPort(); port != 0 {
+			out[name] = port
+		}
+	}
+	return out
 }
