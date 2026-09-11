@@ -232,3 +232,29 @@ func TestConcurrentCreatesAllLand(t *testing.T) {
 		t.Fatalf("got %d commands, want 10:\n%s", len(parsed.Commands), data)
 	}
 }
+
+func TestCreateIntoAnEmptyFlowMapping(t *testing.T) {
+	// "commands: {}" is a flow mapping: block entries cannot be spliced under
+	// it, so the whole line has to be rewritten.
+	p := writeFixture(t, "# keep me\nprojects: []\ncommands: {}\n", 0o600)
+
+	f := &File{path: p}
+	if err := f.Create("web", config.Command{Cmd: []string{"npm", "start"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(p)
+	parsed, err := config.ParseBytes(data, p)
+	if err != nil {
+		t.Fatalf("result does not parse: %v\n%s", err, data)
+	}
+	if _, ok := parsed.Commands["web"]; !ok {
+		t.Fatalf("web missing:\n%s", data)
+	}
+	if !strings.Contains(string(data), "# keep me") {
+		t.Fatalf("the header comment was lost:\n%s", data)
+	}
+	if strings.Contains(string(data), "{}") {
+		t.Fatalf("the empty flow mapping survived alongside the block:\n%s", data)
+	}
+}

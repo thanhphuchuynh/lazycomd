@@ -28,17 +28,17 @@ const (
 
 // Command is one configured command.
 type Command struct {
-	Cmd       []string          `yaml:"cmd"`
-	Cwd       string            `yaml:"cwd"`
-	Env       map[string]string `yaml:"env"`
-	Shell     bool              `yaml:"shell"`
-	Restart   Restart           `yaml:"restart"`
-	Autostart bool              `yaml:"autostart"`
-	Log       bool              `yaml:"log"`
-	Size      int               `yaml:"size"`
-	DependsOn []string          `yaml:"depends_on"`
-	Health    string            `yaml:"health"`
-	Port      int               `yaml:"port"`
+	Cmd       []string          `yaml:"cmd" json:"cmd"`
+	Cwd       string            `yaml:"cwd" json:"cwd,omitempty"`
+	Env       map[string]string `yaml:"env" json:"env,omitempty"`
+	Shell     bool              `yaml:"shell" json:"shell,omitempty"`
+	Restart   Restart           `yaml:"restart" json:"restart,omitempty"`
+	Autostart bool              `yaml:"autostart" json:"autostart,omitempty"`
+	Log       bool              `yaml:"log" json:"log,omitempty"`
+	Size      int               `yaml:"size" json:"size,omitempty"`
+	DependsOn []string          `yaml:"depends_on" json:"depends_on,omitempty"`
+	Health    string            `yaml:"health" json:"health,omitempty"`
+	Port      int               `yaml:"port" json:"port,omitempty"`
 }
 
 // File is one YAML file on disk. Listen, TokenFile and Projects are

@@ -46,6 +46,11 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /v1/commands/{name}/logs/stream", s.stream)
 	mux.HandleFunc("POST /v1/reload", s.doReload)
 	mux.HandleFunc("GET /v1/system", s.system)
+	mux.HandleFunc("GET /v1/projects", s.projects)
+	mux.HandleFunc("GET /v1/commands/{name}/config", s.commandConfig)
+	mux.HandleFunc("POST /v1/commands", s.createCommand)
+	mux.HandleFunc("PUT /v1/commands/{name}", s.updateCommand)
+	mux.HandleFunc("DELETE /v1/commands/{name}", s.deleteCommand)
 	return mux
 }
 

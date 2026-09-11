@@ -2,22 +2,28 @@ package configw
 
 import "gopkg.in/yaml.v3"
 
-// commandsNode returns the mapping node under the top-level "commands" key.
-func commandsNode(doc *yaml.Node) (*yaml.Node, bool) {
+// commandsPair returns the top-level "commands" key and its mapping value.
+func commandsPair(doc *yaml.Node) (*yaml.Node, *yaml.Node, bool) {
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
-		return nil, false
+		return nil, nil, false
 	}
 	root := doc.Content[0]
 	if root.Kind != yaml.MappingNode {
-		return nil, false
+		return nil, nil, false
 	}
 	// A mapping's Content alternates key, value, key, value.
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		if root.Content[i].Value == "commands" && root.Content[i+1].Kind == yaml.MappingNode {
-			return root.Content[i+1], true
+			return root.Content[i], root.Content[i+1], true
 		}
 	}
-	return nil, false
+	return nil, nil, false
+}
+
+// commandsNode returns the mapping node under the top-level "commands" key.
+func commandsNode(doc *yaml.Node) (*yaml.Node, bool) {
+	_, val, ok := commandsPair(doc)
+	return val, ok
 }
 
 // blockRange reports the 1-based inclusive line range one command occupies and

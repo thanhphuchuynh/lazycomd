@@ -53,7 +53,7 @@ func (f *File) Create(name string, c config.Command) error {
 			return nil, fmt.Errorf("%w: %s", ErrExists, name)
 		}
 
-		end, indent, ok := commandsEnd(doc)
+		key, cmds, ok := commandsPair(doc)
 		if !ok {
 			// No commands: key at all; start one at the end of the file.
 			block, err := renderBlock(name, c, 2)
@@ -65,6 +65,19 @@ func (f *File) Create(name string, c config.Command) error {
 			return append(out, block...), nil
 		}
 
+		if len(cmds.Content) == 0 {
+			// "commands: {}" is a flow mapping, and block entries cannot be
+			// spliced under one. Replace the whole line with a block mapping.
+			indent := key.Column - 1
+			block, err := renderBlock(name, c, indent+2)
+			if err != nil {
+				return nil, err
+			}
+			head := strings.Repeat(" ", indent) + "commands:"
+			return replaceRange(lines, key.Line, maxLine(cmds), append([]string{head}, block...)), nil
+		}
+
+		end, indent, _ := commandsEnd(doc)
 		block, err := renderBlock(name, c, indent)
 		if err != nil {
 			return nil, err
