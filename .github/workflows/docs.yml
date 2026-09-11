@@ -1,8 +1,15 @@
 name: docs
 
+# GitHub's github-pages environment allows the default branch by default,
+# not tags. Deploy from main so a v* release does not get rejected.
+# Re-run: Actions → docs → Run workflow.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
