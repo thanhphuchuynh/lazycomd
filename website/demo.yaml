@@ -1,0 +1,11 @@
+commands:
+  web:
+    cmd: ["python3", "-m", "http.server", "18099"]
+    cwd: /tmp
+    port: 18099
+    autostart: true
+  worker:
+    cmd: ["sleep", "3600"]
+  tunnel:
+    cmd: ["sleep", "3600"]
+    restart: on-failure
