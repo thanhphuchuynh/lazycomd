@@ -1,0 +1,28 @@
+---
+title: Install
+description: Build the binary and run the daemon.
+---
+
+```bash
+go build -o ~/.local/bin/lazycomd ./cmd/lazycomd
+```
+
+The module path is `github.com/thanhphuchuynh/lazycomd`.
+
+Run the daemon in the foreground, or install one of the unit files in
+`contrib/`:
+
+```bash
+lazycomd serve
+```
+
+`contrib/lazycomd.service` is a systemd user unit.
+`contrib/com.tphuc.lazycomd.plist` is launchd.
+
+There is no in-process daemonization. `serve` stays in the foreground;
+launchd or systemd restarts it.
+
+<Info>
+A second `serve` prints `already running` and exits 1. A leftover socket
+with nothing behind it is cleared.
+</Info>

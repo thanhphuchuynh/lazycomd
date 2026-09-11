@@ -1,0 +1,58 @@
+---
+title: Configuration
+description: Global YAML, project files, and environment overrides.
+---
+
+Global config: `~/.config/lazycomd/config.yaml` (`$XDG_CONFIG_HOME` and
+`LAZYCOMD_CONFIG` override it).
+
+```yaml
+listen: ""                 # empty = unix socket only; ":7777" = loopback TCP
+token_file: ""             # required when listen is set; must be mode 0600
+projects:
+  - ~/coding/scraper       # each holds a lazycomd.yaml
+commands:
+  proxy:
+    cmd: ["cloudflared", "tunnel", "--url", "localhost:3000"]
+    cwd: ~                 # default: your home dir, or the project dir
+    env: {LOG: debug}
+    shell: false           # true wraps cmd in sh -c
+    restart: on-failure    # no | on-failure | always
+    autostart: false       # start when the daemon starts
+    log: true              # also tee output to ~/.local/state/lazycomd/logs/
+    size: 262144           # ring buffer bytes
+    depends_on: []         # started first, in order
+    port: 3000             # the port this command means to bind
+    health: http://localhost:3000/healthz   # probed every 10s while running
+```
+
+`health:` is polled every 10s while the command is running: a GET with a 2s
+timeout, any 2xx is healthy, redirects are not followed. It is a display
+signal only — `depends_on` still uses spawned-plus-200ms readiness.
+
+`port:` declares the port the command means to bind, so the dashboard can tell
+you when something else is holding it. With `health:` set and `port:` unset,
+the port is taken from the health URL.
+
+A project's `lazycomd.yaml` holds a `commands:` block only. Its commands are
+namespaced by the project directory's basename: `scraper:api`. Two project
+directories with the same basename is a config error, as is `listen:`,
+`token_file:` or `projects:` inside a project file.
+
+A project command's `depends_on` entry resolves inside its own project first,
+then against global commands. A project command with no `cwd` defaults to its
+project directory.
+
+`~` and `$VAR` expand when a command starts, not when the config loads, so a
+restart picks up a changed environment. Write `$$` for a literal dollar sign —
+without it, shell constructs like `$!` would be expanded away. The fields
+above are the complete set; an unknown field is a config error.
+
+## Environment
+
+| Variable | Meaning |
+|---|---|
+| `LAZYCOMD_ADDR` | `unix:///path/to.sock` or `http://host:port` |
+| `LAZYCOMD_TOKEN` | Bearer token for a TCP address |
+| `LAZYCOMD_CONFIG` | Override the config path |
+| `XDG_CONFIG_HOME`, `XDG_STATE_HOME` | Standard overrides |

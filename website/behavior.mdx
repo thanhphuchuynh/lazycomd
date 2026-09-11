@@ -1,0 +1,26 @@
+---
+title: Behavior
+description: Reload, dependencies, process groups, logs, and ports.
+---
+
+- **Reload never restarts anything.** A changed spec on a running command is
+  staged and reported as `spec_dirty`; it takes effect on that command's next
+  start.
+- **Stopping is not recursive.** Stopping a dependency leaves its dependents
+  running.
+- **Dependencies are ordered, not probed.** A dependency counts as ready 200ms
+  after it spawns. There are no port or HTTP readiness checks.
+- **Whole process trees die.** Each command runs in its own process group, and
+  stop signals the group, so wrapper commands do not leak children.
+- **No orphan adoption.** Commands die with the daemon. Use `autostart: true`
+  to bring a stack back up.
+- **Logs are memory-first.** The ring buffer holds the last 256 KB per
+  command. `log: true` also appends to disk, rotating once at 10 MB, keeping
+  one previous generation as `<name>.log.1`.
+- **Commands get pipes, not a TTY.** Anything that needs a terminal will
+  behave as though piped.
+- **A contested port is reported either way.** A command whose port is held by
+  something else is flagged whether that command is running or dead — the dead
+  case is usually why it died.
+- **One daemon at a time.** The socket is the lock: a second `serve` prints
+  `already running` and exits 1, while a stale socket is cleared.

@@ -1,0 +1,24 @@
+---
+title: CLI
+description: Subcommands, name resolution, and exit codes.
+---
+
+| Command | What it does |
+|---|---|
+| `lazycomd serve` | Run the daemon in the foreground |
+| `lazycomd ls` | Name, state, pid, uptime, restarts |
+| `lazycomd start <name> [-d]` | Start; `-d` starts dependencies first |
+| `lazycomd stop <name>` | SIGTERM the process group, SIGKILL after 10s |
+| `lazycomd restart <name>` | Stop then start |
+| `lazycomd logs <name> [-n N] [-f]` | Show or follow output |
+| `lazycomd reload` | Re-read the config and apply the diff |
+| `lazycomd run <name>` | Start with dependencies, follow output, stop on Ctrl-C |
+
+A bare name matches a global command, then a unique `project:name`. An
+ambiguous name lists the candidates and exits 1. Flags may come before or
+after the command name: `logs api -f` and `logs -f api` both work.
+
+`lazycomd run` on a command that is already running attaches to its output and
+leaves it running on Ctrl-C — it only stops what it started.
+
+Exit codes: 0 success, 1 daemon or client error, 2 usage error.
