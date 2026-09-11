@@ -1,0 +1,111 @@
+// Package config loads and validates lazycomd's YAML configuration.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"sort"
+
+	"gopkg.in/yaml.v3"
+)
+
+// DefaultBufSize is the per-command log ring buffer size when size: is unset.
+const DefaultBufSize = 256 * 1024
+
+// Restart is a command's restart policy.
+type Restart string
+
+const (
+	RestartNo        Restart = "no"
+	RestartOnFailure Restart = "on-failure"
+	RestartAlways    Restart = "always"
+)
+
+// Command is one configured command.
+type Command struct {
+	Cmd       []string          `yaml:"cmd"`
+	Cwd       string            `yaml:"cwd"`
+	Env       map[string]string `yaml:"env"`
+	Shell     bool              `yaml:"shell"`
+	Restart   Restart           `yaml:"restart"`
+	Autostart bool              `yaml:"autostart"`
+	Log       bool              `yaml:"log"`
+	Size      int               `yaml:"size"`
+	DependsOn []string          `yaml:"depends_on"`
+}
+
+// File is one YAML file on disk. Listen, TokenFile and Projects are
+// meaningful in the global config only.
+type File struct {
+	Listen    string             `yaml:"listen"`
+	TokenFile string             `yaml:"token_file"`
+	Projects  []string           `yaml:"projects"`
+	Commands  map[string]Command `yaml:"commands"`
+}
+
+// ParseFile decodes one YAML file, rejecting unknown fields.
+func ParseFile(path string) (*File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	dec := yaml.NewDecoder(f)
+	dec.KnownFields(true)
+
+	var out File
+	if err := dec.Decode(&out); err != nil {
+		if errors.Is(err, io.EOF) {
+			return &File{Commands: map[string]Command{}}, nil
+		}
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if out.Commands == nil {
+		out.Commands = map[string]Command{}
+	}
+	return &out, nil
+}
+
+// Validate checks every command and applies defaults in place.
+func (f *File) Validate() error {
+	names := make([]string, 0, len(f.Commands))
+	for n := range f.Commands {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
+	for _, n := range names {
+		c := f.Commands[n]
+		if err := c.validate(n); err != nil {
+			return err
+		}
+		f.Commands[n] = c
+	}
+	if f.Listen != "" && f.TokenFile == "" {
+		return errors.New("listen requires token_file")
+	}
+	return nil
+}
+
+func (c *Command) validate(name string) error {
+	if len(c.Cmd) == 0 {
+		return fmt.Errorf("command %q: cmd is empty", name)
+	}
+	switch c.Restart {
+	case "":
+		c.Restart = RestartNo
+	case RestartNo, RestartOnFailure, RestartAlways:
+	default:
+		return fmt.Errorf("command %q: invalid restart %q (want no, on-failure or always)", name, c.Restart)
+	}
+	if c.Size < 0 {
+		return fmt.Errorf("command %q: size must be >= 0", name)
+	}
+	if c.Size == 0 {
+		c.Size = DefaultBufSize
+	}
+	return nil
+}
