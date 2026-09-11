@@ -9,6 +9,7 @@ import (
 
 	"github.com/tphuc/lazycomd/internal/client"
 	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/tphuc/lazycomd/internal/probe"
 )
 
 // Timings and limits. All of them are spec values, not taste.
@@ -101,5 +102,33 @@ func doAction(c *client.Client, verb, name string) tea.Cmd {
 			st, err = c.Restart(name)
 		}
 		return actionDoneMsg{verb: verb, name: name, st: st, err: err}
+	}
+}
+
+// systemTick is slower than the command poll: the underlying samples only
+// move every 2-10s.
+const systemTick = 3 * time.Second
+
+// systemTickMsg drives the machine-state poll.
+type systemTickMsg time.Time
+
+// systemMsg is a successful GET /v1/system.
+type systemMsg probe.Snapshot
+
+// systemErrMsg is a failed one. The last good snapshot stays on screen.
+type systemErrMsg struct{ err error }
+
+func systemTickCmd() tea.Cmd {
+	return tea.Tick(systemTick, func(t time.Time) tea.Msg { return systemTickMsg(t) })
+}
+
+// fetchSystem polls the machine's state.
+func fetchSystem(c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		snap, err := c.System()
+		if err != nil {
+			return systemErrMsg{err: err}
+		}
+		return systemMsg(snap)
 	}
 }
