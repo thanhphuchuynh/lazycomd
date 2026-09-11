@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/tphuc/lazycomd/internal/client"
+	"github.com/tphuc/lazycomd/internal/config"
 	"github.com/tphuc/lazycomd/internal/manager"
 	"github.com/tphuc/lazycomd/internal/probe"
 )
@@ -35,6 +36,13 @@ type Model struct {
 
 	focus   focus
 	overlay overlay
+
+	// The detail pane replaces the log pane for the selected command. Its
+	// spec is fetched on open, so detailOK guards the half that needs it.
+	detail     bool
+	detailOf   string
+	detailSpec config.Command
+	detailOK   bool
 
 	width     int
 	height    int
@@ -144,6 +152,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.projects = map[string]string(msg)
 		return m, nil
 
+	case detailConfigMsg:
+		if msg.name == m.detailOf {
+			m.detailSpec, m.detailOK = msg.cmd, len(msg.cmd.Cmd) > 0
+		}
+		return m, nil
+
 	case commandConfigMsg:
 		m.form.OpenEdit(msg.name, msg.cmd, m.projects)
 		m.overlay = overlayForm
@@ -230,7 +244,12 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Keys the filter input must swallow before anything else sees them.
+	// Keys a filter input must swallow before anything else sees them.
+	if m.system.FilterEditing() {
+		var cmd tea.Cmd
+		m.system, cmd = m.system.Update(k)
+		return m, cmd
+	}
 	if m.logs.FilterEditing() {
 		var cmd tea.Cmd
 		m.logs, cmd = m.logs.Update(k)
@@ -253,6 +272,22 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.focusPanel(m.focus.next())
 	case "shift+tab":
 		return m.focusPanel(m.focus.prev())
+	case "i":
+		// Detail is about the selected command, so it belongs to that panel.
+		if m.focus != focusCommands {
+			m.setStatus("press 2 for Commands first — i shows the selected command")
+			return m, nil
+		}
+		m.detail = !m.detail
+		if !m.detail {
+			return m, nil
+		}
+		sel, ok := m.table.Selected()
+		if !ok {
+			return m, nil
+		}
+		m.detailOf, m.detailSpec, m.detailOK = sel.Name, config.Command{}, false
+		return m, fetchDetailConfig(m.client, sel.Name)
 	case "p":
 		m.palette.Open(m.table.rows)
 		m.overlay = overlayPalette
@@ -279,10 +314,22 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// The main pane scrolls from any panel, so j/k always belong to the
 	// focused panel instead of being shared.
 	case "ctrl+d", "ctrl+u", "f", "/":
+		// Slash searches whatever the focused panel lists; for Commands that
+		// is the log pane, which is what the main pane shows.
+		if s == "/" && m.focus == focusPorts {
+			return m.handlePanelKey(k)
+		}
 		var cmd tea.Cmd
 		m.logs, cmd = m.logs.Update(k)
 		return m, cmd
 	case "esc":
+		if m.focus == focusPorts && m.system.Query() != "" {
+			return m.handlePanelKey(k)
+		}
+		if m.detail {
+			m.detail = false
+			return m, nil
+		}
 		// Esc has one job now: drop the log filter. Panels are switched by
 		// number, so it has nothing else to undo.
 		if m.logs.Query() != "" {
@@ -302,6 +349,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // focusPanel moves focus and resyncs whatever the main pane now shows.
 func (m Model) focusPanel(f focus) (tea.Model, tea.Cmd) {
 	m.focus = f
+	// Panel heights depend on focus in the stacked layout, and layout() only
+	// ran on a resize: the focused panel stayed collapsed until you resized
+	// the terminal, which made its list — and its filter — invisible.
+	m.layout()
 	return m, nil
 }
 
@@ -583,6 +634,19 @@ func (m Model) mainPane() string {
 	case focusPorts:
 		title, rows = "port detail", m.system.Detail()
 	default:
+		if m.detail {
+			sel, _ := m.table.Selected()
+			title := "detail"
+			if sel.Name != "" {
+				title = sel.Name + " · detail"
+			}
+			return panelView(panelSpec{
+				Title:  title,
+				Width:  m.mainW,
+				Height: m.mainH,
+				Rows:   commandDetail(sel, m.detailSpec, m.detailOK, m.system.snap.Ports),
+			})
+		}
 		title := m.logs.Title()
 		if sel, ok := m.table.Selected(); ok && sel.PID > 0 {
 			title = fmt.Sprintf("%s · pid %d", title, sel.PID)

@@ -140,6 +140,25 @@ type commandConfigMsg struct {
 	cmd  config.Command
 }
 
+// detailConfigMsg carries a command's spec for the detail pane. It is a
+// separate message from commandConfigMsg because that one opens the editor.
+type detailConfigMsg struct {
+	name string
+	cmd  config.Command
+}
+
+// fetchDetailConfig reads a spec to show, not to edit: a failure dims the
+// configured half of the pane rather than raising an error over the screen.
+func fetchDetailConfig(c *client.Client, name string) tea.Cmd {
+	return func() tea.Msg {
+		cmd, err := c.CommandConfig(name)
+		if err != nil {
+			return detailConfigMsg{name: name}
+		}
+		return detailConfigMsg{name: name, cmd: cmd}
+	}
+}
+
 // formSavedMsg is a successful create or update.
 type formSavedMsg struct{ status manager.Status }
 

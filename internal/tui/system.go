@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/tphuc/lazycomd/internal/probe"
@@ -24,6 +25,7 @@ const (
 type systemModel struct {
 	focused bool
 	snap    probe.Snapshot
+	filter  filterState
 	cursor  int
 	offset  int
 	width   int
@@ -32,8 +34,33 @@ type systemModel struct {
 }
 
 func newSystem() systemModel {
-	return systemModel{now: time.Now}
+	return systemModel{now: time.Now, filter: newFilter()}
 }
+
+// ports is the visible list: every listener, or only the ones matching the
+// filter. The cursor indexes this, not the raw sample, so the detail pane and
+// the selection follow what you can actually see.
+func (s systemModel) ports() []probe.Port {
+	if s.filter.query == "" {
+		return s.snap.Ports
+	}
+	out := make([]probe.Port, 0, len(s.snap.Ports))
+	for _, p := range s.snap.Ports {
+		if smartContains(portHaystack(p), s.filter.query) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// portHaystack is every field worth searching on one line: you look for a
+// port by number as often as by the process holding it.
+func portHaystack(p probe.Port) string {
+	return fmt.Sprintf("%d %s %s %d %s", p.Port, p.Addr, p.Process, p.PID, p.Command)
+}
+
+func (s systemModel) FilterEditing() bool { return s.filter.editing }
+func (s systemModel) Query() string       { return s.filter.query }
 
 func (s *systemModel) SetSize(w, h int) {
 	s.width, s.height = w, h
@@ -52,7 +79,7 @@ func (s *systemModel) SetSnapshot(snap probe.Snapshot) {
 	s.snap = snap
 
 	if was.Port != 0 {
-		for i, p := range snap.Ports {
+		for i, p := range visible(snap, s.filter.query) {
 			if p.Port == was.Port && p.Addr == was.Addr && p.PID == was.PID {
 				s.cursor = i
 				s.clamp()
@@ -66,15 +93,16 @@ func (s *systemModel) SetSnapshot(snap probe.Snapshot) {
 
 // Selected is the port under the cursor.
 func (s systemModel) Selected() (probe.Port, bool) {
-	if s.cursor < 0 || s.cursor >= len(s.snap.Ports) {
+	ports := s.ports()
+	if s.cursor < 0 || s.cursor >= len(ports) {
 		return probe.Port{}, false
 	}
-	return s.snap.Ports[s.cursor], true
+	return ports[s.cursor], true
 }
 
 func (s *systemModel) clampCursor() {
-	if s.cursor >= len(s.snap.Ports) {
-		s.cursor = len(s.snap.Ports) - 1
+	if n := len(s.ports()); s.cursor >= n {
+		s.cursor = n - 1
 	}
 	if s.cursor < 0 {
 		s.cursor = 0
@@ -87,13 +115,14 @@ func (s systemModel) PanelRows() []string {
 	if msg := s.snap.Errors["ports"]; msg != "" {
 		return []string{"⚠ unavailable", truncate(msg, s.width-2)}
 	}
-	if len(s.snap.Ports) == 0 {
-		return []string{"nothing listening"}
+	ports := s.ports()
+	if len(ports) == 0 {
+		return append(s.filterRows(), s.emptyLine())
 	}
 
 	contested := s.contestedPorts()
-	rows := make([]string, 0, len(s.snap.Ports))
-	for i, p := range s.snap.Ports {
+	rows := s.filterRows()
+	for i, p := range ports {
 		marker := " "
 		if contested[p.Port] {
 			marker = "⚠"
@@ -121,6 +150,9 @@ func (s systemModel) Subtitle() string {
 		return fmt.Sprintf("stale %ds", int(age.Seconds()))
 	}
 	n := len(s.snap.Ports)
+	if s.filter.query != "" {
+		return fmt.Sprintf("filter %q · %d of %d", s.filter.query, len(s.ports()), n)
+	}
 	if c := len(s.contestedPorts()); c > 0 {
 		return fmt.Sprintf("%d, %d ⚠", n, c)
 	}
@@ -145,7 +177,7 @@ func (s systemModel) Detail() []string {
 	}
 	sel, ok := s.Selected()
 	if !ok {
-		return []string{"nothing listening"}
+		return []string{s.emptyLine()}
 	}
 
 	owner := sel.Command
@@ -174,6 +206,26 @@ func (s systemModel) Update(msg tea.Msg) (systemModel, tea.Cmd) {
 	if !ok {
 		return s, nil
 	}
+	if s.filter.editing {
+		switch k.String() {
+		case "enter":
+			s.filter.query = s.filter.input.Value()
+			s.filter.editing = false
+			s.filter.input.Blur()
+		case "esc":
+			s.filter.editing = false
+			s.filter.input.Blur()
+			s.filter.query = ""
+		default:
+			var cmd tea.Cmd
+			s.filter.input, cmd = s.filter.input.Update(msg)
+			return s, cmd
+		}
+		s.clampCursor()
+		s.clamp()
+		return s, nil
+	}
+
 	page := s.rowRoom() / 2
 	if page < 1 {
 		page = 1
@@ -187,10 +239,20 @@ func (s systemModel) Update(msg tea.Msg) (systemModel, tea.Cmd) {
 		s.cursor += page
 	case "ctrl+u":
 		s.cursor -= page
+	case "/":
+		s.filter.editing = true
+		s.filter.input.Reset()
+		s.filter.input.Focus()
+		return s, textinput.Blink
+	case "esc":
+		if s.filter.query == "" {
+			return s, nil
+		}
+		s.filter.query = ""
 	case "g":
 		s.cursor = 0
 	case "G":
-		s.cursor = len(s.snap.Ports) - 1
+		s.cursor = len(s.ports()) - 1
 	default:
 		return s, nil
 	}
@@ -208,7 +270,7 @@ func (s *systemModel) clamp() {
 	if s.cursor >= s.offset+room {
 		s.offset = s.cursor - room + 1
 	}
-	if limit := len(s.snap.Ports) - room; s.offset > limit {
+	if limit := len(s.ports()) - room; s.offset > limit {
 		s.offset = limit
 	}
 	if s.offset < 0 {
@@ -251,8 +313,9 @@ func (s systemModel) View() string {
 		lines = append(lines, styleWarn.Render(truncate(conflictLine(c), s.width)))
 	}
 
-	if len(s.snap.Ports) == 0 {
-		lines = append(lines, styleDim.Render("nothing listening"))
+	ports := s.ports()
+	if len(ports) == 0 {
+		lines = append(lines, styleDim.Render(s.emptyLine()))
 		return strings.Join(lines, "\n")
 	}
 
@@ -271,10 +334,10 @@ func (s systemModel) View() string {
 	}
 
 	end := s.offset + s.rowRoom()
-	if end > len(s.snap.Ports) {
-		end = len(s.snap.Ports)
+	if end > len(ports) {
+		end = len(ports)
 	}
-	for _, p := range s.snap.Ports[s.offset:end] {
+	for _, p := range ports[s.offset:end] {
 		mark := " "
 		if contested[p.Port] {
 			mark = "⚠"
@@ -295,4 +358,28 @@ func conflictLine(c probe.Conflict) string {
 		return fmt.Sprintf("⚠ %d wanted by %s — nothing is listening", c.Port, c.Command)
 	}
 	return fmt.Sprintf("⚠ %d wanted by %s — held by %s (pid %d)", c.Port, c.Command, c.HeldBy, c.PID)
+}
+
+// filterRows is the filter input, shown only while you are typing it. Once
+// committed, the query lives in the panel subtitle instead of a whole row.
+func (s systemModel) filterRows() []string {
+	if !s.filter.editing {
+		return nil
+	}
+	return []string{s.filter.input.View()}
+}
+
+// emptyLine distinguishes "nothing is listening" from "nothing matched",
+// which are very different things to see after typing a query.
+func (s systemModel) emptyLine() string {
+	if s.filter.query != "" {
+		return fmt.Sprintf("no port matches %q", s.filter.query)
+	}
+	return "nothing listening"
+}
+
+// visible is ports() against a snapshot the model has not adopted yet, used
+// while restoring the cursor onto an incoming sample.
+func visible(snap probe.Snapshot, query string) []probe.Port {
+	return systemModel{snap: snap, filter: filterState{query: query}}.ports()
 }

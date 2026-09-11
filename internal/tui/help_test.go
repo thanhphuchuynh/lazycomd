@@ -22,13 +22,16 @@ func TestEveryScopeHasBindings(t *testing.T) {
 
 func TestKeyBarShowsTheFocusedScopePlusGlobal(t *testing.T) {
 	bar := keyBar(200, focusCommands)
-	for _, want := range []string{"start", "stop", "restart", "palette", "quit", "panel"} {
+	for _, want := range []string{"start", "stop", "restart", "search commands", "detail", "quit", "panel"} {
 		if !strings.Contains(bar, want) {
 			t.Fatalf("commands key bar missing %q:\n%s", want, bar)
 		}
 	}
 
 	bar = keyBar(200, focusPorts)
+	if !strings.Contains(bar, "search ports") {
+		t.Fatalf("ports key bar missing its own search binding:\n%s", bar)
+	}
 	if strings.Contains(bar, "restart") {
 		t.Fatalf("ports key bar shows a commands binding:\n%s", bar)
 	}
