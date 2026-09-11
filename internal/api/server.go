@@ -44,6 +44,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /v1/commands/{name}/restart", s.restart)
 	mux.HandleFunc("GET /v1/commands/{name}/logs", s.logs)
 	mux.HandleFunc("GET /v1/commands/{name}/logs/stream", s.stream)
+	mux.HandleFunc("POST /v1/reload", s.doReload)
 	return mux
 }
 

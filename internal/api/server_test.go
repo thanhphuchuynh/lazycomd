@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,7 +21,14 @@ import (
 // it, proving the transport the daemon actually uses.
 func serveUnix(t *testing.T, h http.Handler) *http.Client {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "s.sock")
+	// Not t.TempDir(): macOS caps a unix socket path at 104 bytes and the
+	// per-test temp path plus a long test name overruns it.
+	dir, err := os.MkdirTemp("/tmp", "lzc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "s.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
