@@ -71,8 +71,8 @@ func TestStatusErrShowsTheBannerAndSlowsTheTick(t *testing.T) {
 	if !strings.Contains(m.header(), "daemon not running") {
 		t.Fatalf("header = %q, want the reconnect banner", m.header())
 	}
-	if !strings.Contains(m.View(), "tick") {
-		t.Fatal("last known rows should stay visible while disconnected")
+	if sel, ok := m.table.Selected(); !ok || sel.Name != "tick" {
+		t.Fatal("last known rows should stay in the table while disconnected")
 	}
 }
 

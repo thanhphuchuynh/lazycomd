@@ -6,7 +6,7 @@
   <string>com.tphuc.lazycomd</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/lazycomd</string>
+    <string>/Users/USER/.local/bin/lazycomd</string>
     <string>serve</string>
   </array>
   <key>RunAtLoad</key>

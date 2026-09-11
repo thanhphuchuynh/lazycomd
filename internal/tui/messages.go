@@ -1,5 +1,6 @@
-// Package tui is lazycomd's terminal UI. It drives the daemon entirely
-// through internal/client; it never spawns or signals a process.
+// Package tui is lazycomd's terminal UI. It drives commands through
+// internal/client. It never spawns a supervised command; it may start the
+// local daemon when the user says so.
 package tui
 
 import (
@@ -57,6 +58,9 @@ type actionDoneMsg struct {
 	st   manager.Status
 	err  error
 }
+
+// daemonStartMsg is the result of asking the TUI to bring the local daemon up.
+type daemonStartMsg struct{ err error }
 
 // tickCmd schedules the next poll.
 func tickCmd(d time.Duration) tea.Cmd {

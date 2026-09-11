@@ -120,6 +120,7 @@ func (errNoDaemonForTest) Error() string { return "daemon not running" }
 func TestLifecycleKeysAreInertWhileDisconnected(t *testing.T) {
 	m := modelWithRows(t, "tick")
 	m, _ = step(t, m, statusErrMsg{err: errNoDaemonForTest{}})
+	m, _ = step(t, m, key("n")) // skip the start-daemon prompt
 
 	m2, cmd := step(t, m, key("s"))
 	if cmd != nil {

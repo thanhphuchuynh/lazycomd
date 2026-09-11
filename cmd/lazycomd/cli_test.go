@@ -81,6 +81,9 @@ func TestDispatchUsageErrors(t *testing.T) {
 	if code := dispatch([]string{"help"}); code != 0 {
 		t.Fatalf("help = %d, want 0", code)
 	}
+	if code := dispatch([]string{"version"}); code != 0 {
+		t.Fatalf("version = %d, want 0", code)
+	}
 }
 
 func TestDispatchNoDaemon(t *testing.T) {

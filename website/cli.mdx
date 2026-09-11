@@ -13,6 +13,7 @@ description: Subcommands, name resolution, and exit codes.
 | `lazycomd logs <name> [-n N] [-f]` | Show or follow output |
 | `lazycomd reload` | Re-read the config and apply the diff |
 | `lazycomd run <name>` | Start with dependencies, follow output, stop on Ctrl-C |
+| `lazycomd version` | Print the build version |
 
 A bare name matches a global command, then a unique `project:name`. An
 ambiguous name lists the candidates and exits 1. Flags may come before or

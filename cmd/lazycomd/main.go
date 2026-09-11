@@ -11,6 +11,9 @@ import (
 	"github.com/thanhphuchuynh/lazycomd/internal/tui"
 )
 
+// version is set at release build time via -ldflags -X main.version=.
+var version = "dev"
+
 const usage = `lazycomd - run and supervise long dev commands
 
 usage: lazycomd [command] [flags]
@@ -24,6 +27,7 @@ usage: lazycomd [command] [flags]
   logs <name> [-n N] [-f]  show, or follow, a command's output
   reload                   re-read the config and apply the diff
   run <name>               start with dependencies, then follow output
+  version                  print the build version
 
 environment:
   LAZYCOMD_ADDR    unix:///path/to.sock or http://host:port
@@ -71,6 +75,9 @@ func dispatch(args []string) int {
 		return runReload(args[1:])
 	case "run":
 		return runRun(args[1:])
+	case "version", "-v", "--version":
+		fmt.Println(version)
+		return 0
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return 0

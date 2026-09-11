@@ -41,6 +41,7 @@ const (
 	overlayForm
 	overlayConfirm
 	overlayLog
+	overlayStartDaemon
 )
 
 // scope is where a binding applies.

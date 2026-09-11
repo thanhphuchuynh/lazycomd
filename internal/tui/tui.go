@@ -37,6 +37,11 @@ type Model struct {
 	focus   focus
 	overlay overlay
 
+	// startDaemon brings up the local daemon. Tests replace it so a keypress
+	// never actually execs serve.
+	startDaemon  func() error
+	offeredStart bool
+
 	// The detail pane replaces the log pane for the selected command. Its
 	// spec is fetched on open, so detailOK guards the half that needs it.
 	detail     bool
@@ -103,6 +108,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusMsg:
 		m.connected = true
+		if m.overlay == overlayStartDaemon {
+			m.overlay = overlayNone
+		}
 		m.table.SetRows([]manager.Status(msg))
 		m.statusPanel.SetRows([]manager.Status(msg))
 		m.statusPanel.SetConnected(true)
@@ -112,6 +120,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connected = false
 		m.statusPanel.SetConnected(false)
 		m.setStatus(msg.err.Error())
+		if !m.offeredStart && !remoteClient(m.client) && m.overlay == overlayNone {
+			m.offeredStart = true
+			m.overlay = overlayStartDaemon
+		}
+		return m, nil
+
+	case daemonStartMsg:
+		if msg.err != nil {
+			m.setStatus(msg.err.Error())
+			return m, nil
+		}
+		m.setStatus("starting daemon")
 		return m, nil
 
 	case actionDoneMsg:
@@ -244,6 +264,16 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			m.overlay = overlayNone
 			return m, deleteCommand(m.client, m.confirm.Name())
+		case "n", "esc", "q":
+			m.overlay = overlayNone
+		}
+		return m, nil
+	}
+	if m.overlay == overlayStartDaemon {
+		switch s {
+		case "y":
+			m.overlay = overlayNone
+			return m, startDaemonCmd(m.startDaemon)
 		case "n", "esc", "q":
 			m.overlay = overlayNone
 		}
@@ -663,6 +693,10 @@ func (m Model) View() string {
 	}
 	if m.overlay == overlayConfirm {
 		body := m.confirm.View(minInt(m.width, 56), minInt(m.bodyH, 8))
+		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
+	}
+	if m.overlay == overlayStartDaemon {
+		body := startDaemonView(minInt(m.width, 56), minInt(m.bodyH, 8))
 		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
 	}
 

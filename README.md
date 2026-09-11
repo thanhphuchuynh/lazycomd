@@ -8,15 +8,9 @@ Docs: https://thanhphuchuynh.github.io/lazycomd/
 ## Install
 
 ```bash
-go build -o ~/.local/bin/lazycomd ./cmd/lazycomd
+curl -sSfL https://github.com/thanhphuchuynh/lazycomd/releases/latest/download/install.sh | sh
 ```
 
-Run the daemon in the foreground, or install one of the unit files in
-`contrib/`:
-
-```bash
-lazycomd serve
-```
-
-With no arguments, `lazycomd` opens the TUI (a TTY is required). Quitting
-the TUI does not stop the daemon.
+That installs `~/.local/bin/lazycomd`, starts the daemon, and enables it at
+login. With no arguments, `lazycomd` opens the TUI (a TTY is required).
+Quitting the TUI does not stop the daemon.

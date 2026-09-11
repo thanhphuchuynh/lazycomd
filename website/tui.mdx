@@ -80,8 +80,11 @@ The filter is a plain substring with smart case: a lowercase query matches
 case-insensitively. A state shown as `running*` means the config changed under
 a reload and the new spec applies on that command's next start.
 
-Quitting the TUI stops nothing. If the daemon goes away, the header says so and
-the TUI retries every 2s rather than exiting.
+Quitting the TUI stops nothing. If the daemon is down when you open the TUI
+(unix socket only), it asks once: `y` starts it (user service if installed,
+otherwise a background `serve`), `n` or `esc` skips. After that it retries
+every 2s rather than exiting. A TCP `LAZYCOMD_ADDR` never offers to start
+a local daemon.
 
 With no terminal — `lazycomd | cat`, CI — the bare command prints usage
 instead of launching.
