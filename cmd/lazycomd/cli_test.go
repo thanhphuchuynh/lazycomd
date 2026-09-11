@@ -214,3 +214,18 @@ func TestHoistFlags(t *testing.T) {
 		t.Fatalf("hoistFlags = %q", strings.Join(got, " "))
 	}
 }
+
+func TestBareInvocationWithoutATTYPrintsUsage(t *testing.T) {
+	// go test never gives us a terminal, so this exercises the guard: the
+	// TUI must not launch, and the exit code stays 2 as before.
+	testDaemon(t, map[string]config.Command{"a": {Cmd: []string{"sleep", "30"}, Cwd: "/tmp"}})
+	if code := dispatch(nil); code != 2 {
+		t.Fatalf("bare dispatch = %d, want 2 without a TTY", code)
+	}
+}
+
+func TestUsageMentionsTheTUI(t *testing.T) {
+	if !strings.Contains(usage, "TUI") {
+		t.Fatalf("usage should say the bare command opens the TUI:\n%s", usage)
+	}
+}
