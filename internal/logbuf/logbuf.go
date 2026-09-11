@@ -4,6 +4,7 @@ package logbuf
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"sync"
 )
@@ -21,6 +22,10 @@ type Buffer struct {
 
 	subs map[int]chan []byte
 	next int
+
+	tee     *os.File
+	teePath string
+	teeN    int64
 }
 
 // New returns a Buffer holding the last size bytes.
@@ -36,6 +41,7 @@ func (b *Buffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	b.appendLocked(p)
 	b.fanoutLocked(p)
+	b.teeLocked(p)
 	b.mu.Unlock()
 	return len(p), nil
 }
