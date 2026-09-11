@@ -38,6 +38,8 @@ const (
 	overlayNone overlay = iota
 	overlayHelp
 	overlayPalette
+	overlayForm
+	overlayConfirm
 )
 
 // scope is where a binding applies.
@@ -65,6 +67,9 @@ var bindings = []binding{
 	{"S", "stop", scopeCommands},
 	{"r", "restart", scopeCommands},
 	{"p", "palette", scopeCommands},
+	{"a", "add", scopeCommands},
+	{"e", "edit", scopeCommands},
+	{"d", "delete", scopeCommands},
 	{"j/k", "move", scopePorts},
 	{"g/G", "first/last", scopePorts},
 	{"enter", "start and select", scopePalette},

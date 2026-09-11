@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -27,6 +28,9 @@ type Model struct {
 	palette     paletteModel
 	system      systemModel
 	statusPanel statusModel
+	form        formModel
+	confirm     confirmModel
+	projects    map[string]string
 
 	focus   focus
 	overlay overlay
@@ -59,13 +63,15 @@ func New(c *client.Client, s *sink) Model {
 		palette:     newPalette(),
 		system:      newSystem(),
 		statusPanel: newStatus(c.Addr()),
+		form:        newForm(launchDir(), remoteClient(c)),
+		confirm:     newConfirm(),
 		focus:       focusCommands,
 		now:         time.Now,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(fetchStatus(m.client), tickCmd(tickConnected), fetchSystem(m.client), systemTickCmd())
+	return tea.Batch(fetchStatus(m.client), tickCmd(tickConnected), fetchSystem(m.client), systemTickCmd(), fetchProjects(m.client))
 }
 
 // tickInterval polls faster while the daemon is answering.
@@ -133,6 +139,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// good snapshot on screen rather than blanking the view.
 		return m, nil
 
+	case projectsMsg:
+		m.projects = map[string]string(msg)
+		return m, nil
+
+	case commandConfigMsg:
+		m.form.OpenEdit(msg.name, msg.cmd, m.projects)
+		m.overlay = overlayForm
+		return m, textinput.Blink
+
+	case formSavedMsg:
+		m.overlay = overlayNone
+		m.table.MergeStatus(msg.status)
+		m.table.SelectName(msg.status.Name)
+		m.setStatus(msg.status.Name + " saved")
+		return m, tea.Batch(fetchStatus(m.client), m.syncStream())
+
+	case formErrMsg:
+		if m.overlay == overlayForm {
+			m.form.SetError(msg.err.Error())
+			return m, nil
+		}
+		m.setStatus(msg.err.Error())
+		return m, nil
+
+	case deletedMsg:
+		m.setStatus(msg.name + " deleted from the config")
+		return m, fetchStatus(m.client)
+
 	case streamEndedMsg:
 		if m.stream != nil && m.stream.name == msg.name {
 			m.stream = nil // the next selection sync reopens it
@@ -163,6 +197,33 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.overlay == overlayPalette {
 		return m.handlePaletteKey(k)
 	}
+	if m.overlay == overlayForm {
+		switch s {
+		case "esc":
+			m.overlay = overlayNone
+			return m, nil
+		case "enter":
+			name, cmd := m.form.Result()
+			if name == "" {
+				m.form.SetError("name is required")
+				return m, nil
+			}
+			return m, saveCommand(m.client, m.form.Editing(), name, cmd)
+		}
+		var cmd tea.Cmd
+		m.form, cmd = m.form.Update(k)
+		return m, cmd
+	}
+	if m.overlay == overlayConfirm {
+		switch s {
+		case "y":
+			m.overlay = overlayNone
+			return m, deleteCommand(m.client, m.confirm.Name())
+		case "n", "esc", "q":
+			m.overlay = overlayNone
+		}
+		return m, nil
+	}
 
 	// Keys the filter input must swallow before anything else sees them.
 	if m.logs.FilterEditing() {
@@ -191,6 +252,24 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.palette.Open(m.table.rows)
 		m.overlay = overlayPalette
 		return m, textinput.Blink
+	case "a":
+		m.form.OpenCreate(m.projects)
+		m.overlay = overlayForm
+		return m, textinput.Blink
+	case "e":
+		sel, ok := m.table.Selected()
+		if !ok {
+			return m, nil
+		}
+		return m, fetchCommandConfig(m.client, sel.Name)
+	case "d":
+		sel, ok := m.table.Selected()
+		if !ok {
+			return m, nil
+		}
+		m.confirm.Open(sel.Name, targetFileLabel(sel.Name))
+		m.overlay = overlayConfirm
+		return m, nil
 
 	// The main pane scrolls from any panel, so j/k always belong to the
 	// focused panel instead of being shared.
@@ -414,6 +493,14 @@ func (m Model) View() string {
 	if m.overlay == overlayHelp {
 		return strings.Join([]string{m.header(), helpOverlay(m.width, m.bodyH), m.bottom()}, "\n")
 	}
+	if m.overlay == overlayForm {
+		body := m.form.View(minInt(m.width, 56), minInt(m.bodyH, 12))
+		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
+	}
+	if m.overlay == overlayConfirm {
+		body := m.confirm.View(minInt(m.width, 56), minInt(m.bodyH, 8))
+		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
+	}
 
 	side := m.sidebar()
 	main := m.mainPane()
@@ -510,4 +597,27 @@ func Run(c *client.Client) error {
 		fm.stream.stop()
 	}
 	return err
+}
+
+// launchDir is where the TUI was started, which is almost always the project
+// you are adding a command for.
+func launchDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return wd
+}
+
+// remoteClient reports whether the daemon is reached over TCP, where a local
+// path means nothing.
+func remoteClient(c *client.Client) bool {
+	return !strings.HasPrefix(c.Addr(), "unix://")
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

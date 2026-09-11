@@ -69,8 +69,8 @@ func TestSystemErrorDoesNotClearTheLastSnapshot(t *testing.T) {
 		SampledAt: map[string]time.Time{"ports": time.Now()},
 	}))
 	m, _ = step(t, m, systemErrMsg{err: errNoDaemonForTest{}})
-	m, _ = step(t, m, key("d"))
 
+	// The ports panel is always on screen, so no key is needed to check it.
 	if !strings.Contains(m.View(), "postgres") {
 		t.Fatalf("last snapshot dropped on a fetch error:\n%s", m.View())
 	}
@@ -83,10 +83,18 @@ func TestHelpListsThePanelKeys(t *testing.T) {
 			t.Fatalf("help overlay missing %q:\n%s", want, help)
 		}
 	}
+	// d used to open a ports overlay; ports is a panel now, so d deletes.
+	var deleteBinding bool
 	for _, b := range bindings {
 		if b.key == "d" {
-			t.Fatal("the d binding should be gone: ports is a panel now")
+			if b.desc != "delete" {
+				t.Fatalf("d binding = %q, want delete", b.desc)
+			}
+			deleteBinding = true
 		}
+	}
+	if !deleteBinding {
+		t.Fatal("no d binding for delete")
 	}
 }
 
