@@ -2,14 +2,34 @@ package tui
 
 import "strings"
 
-// focus is which pane takes keys.
+// focus is which panel takes keys. The number is also the key that jumps to
+// it, so panel 1 is Status, 2 is Commands, 3 is Ports.
 type focus int
 
 const (
-	focusTable focus = iota
-	focusLogs
-	focusPalette
+	focusStatus focus = iota
+	focusCommands
+	focusPorts
+	focusCount
 )
+
+// title is what the panel calls itself.
+func (f focus) title() string {
+	switch f {
+	case focusStatus:
+		return "Status"
+	case focusPorts:
+		return "Ports"
+	default:
+		return "Commands"
+	}
+}
+
+// next cycles forward, wrapping.
+func (f focus) next() focus { return (f + 1) % focusCount }
+
+// prev cycles backward, wrapping.
+func (f focus) prev() focus { return (f + focusCount - 1) % focusCount }
 
 // overlay is a full-pane layer drawn over the body.
 type overlay int
@@ -17,7 +37,7 @@ type overlay int
 const (
 	overlayNone overlay = iota
 	overlayHelp
-	overlayPorts
+	overlayPalette
 )
 
 // scope is where a binding applies.
@@ -25,8 +45,8 @@ type scope int
 
 const (
 	scopeGlobal scope = iota
-	scopeTable
-	scopeLogs
+	scopeCommands
+	scopePorts
 	scopePalette
 )
 
@@ -39,34 +59,31 @@ type binding struct {
 // bindings is the single source of truth for the key bar and the help
 // overlay. Adding a key here shows it in both.
 var bindings = []binding{
-	{"j/k", "move", scopeTable},
-	{"g/G", "first/last", scopeTable},
-	{"s", "start", scopeTable},
-	{"S", "stop", scopeTable},
-	{"r", "restart", scopeTable},
-	{"p", "palette", scopeTable},
-	{"j/k", "scroll", scopeLogs},
-	{"ctrl+d/u", "half page", scopeLogs},
-	{"g/G", "top/bottom", scopeLogs},
-	{"esc", "clear filter", scopeLogs},
+	{"j/k", "move", scopeCommands},
+	{"g/G", "first/last", scopeCommands},
+	{"s", "start", scopeCommands},
+	{"S", "stop", scopeCommands},
+	{"r", "restart", scopeCommands},
+	{"p", "palette", scopeCommands},
+	{"j/k", "move", scopePorts},
+	{"g/G", "first/last", scopePorts},
 	{"enter", "start and select", scopePalette},
 	{"esc", "close palette", scopePalette},
+	{"1-3", "panel", scopeGlobal},
+	{"tab", "cycle panels", scopeGlobal},
+	{"ctrl+d/u", "scroll main", scopeGlobal},
 	{"f", "follow", scopeGlobal},
-	{"/", "filter", scopeGlobal},
-	{"tab", "switch pane", scopeGlobal},
-	{"d", "ports", scopeGlobal},
+	{"/", "filter logs", scopeGlobal},
 	{"?", "help", scopeGlobal},
 	{"q", "quit", scopeGlobal},
 }
 
 func scopeFor(f focus) scope {
 	switch f {
-	case focusLogs:
-		return scopeLogs
-	case focusPalette:
-		return scopePalette
+	case focusPorts:
+		return scopePorts
 	default:
-		return scopeTable
+		return scopeCommands
 	}
 }
 
@@ -115,8 +132,8 @@ func helpOverlay(width, height int) string {
 		scope scope
 	}{
 		{"global", scopeGlobal},
-		{"command table", scopeTable},
-		{"log pane", scopeLogs},
+		{"2 Commands", scopeCommands},
+		{"3 Ports", scopePorts},
 		{"palette", scopePalette},
 	}
 
@@ -131,6 +148,9 @@ func helpOverlay(width, height int) string {
 		}
 	}
 	lines = append(lines,
+		"",
+		styleDim.Render("  1 Status, 2 Commands, 3 Ports; the right-hand pane"),
+		styleDim.Render("  follows whichever panel has focus"),
 		"",
 		styleDim.Render("  a state shown as running* means the config changed;"),
 		styleDim.Render("  the new spec applies on that command's next start"),

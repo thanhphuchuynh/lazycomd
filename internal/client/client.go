@@ -38,6 +38,7 @@ func (e *APIError) Error() string { return e.Msg }
 type Client struct {
 	http  *http.Client
 	base  string
+	addr  string // as given, for display
 	token string
 }
 
@@ -46,6 +47,7 @@ func New(addr, token string) (*Client, error) {
 	if sock, ok := strings.CutPrefix(addr, "unix://"); ok {
 		return &Client{
 			base:  "http://unix",
+			addr:  addr,
 			token: token,
 			http: &http.Client{Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -57,6 +59,7 @@ func New(addr, token string) (*Client, error) {
 	if u, err := url.Parse(addr); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
 		return &Client{
 			base:  strings.TrimSuffix(addr, "/"),
+			addr:  addr,
 			token: token,
 			http:  &http.Client{Timeout: 30 * time.Second},
 		}, nil
@@ -213,6 +216,9 @@ func isDown(err error) bool {
 		errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.ECONNRESET)
 }
+
+// Addr is the address this client talks to, for display.
+func (c *Client) Addr() string { return c.addr }
 
 // System returns the daemon's last machine sample: listening ports, per
 // command vitals and health, and any port conflicts.

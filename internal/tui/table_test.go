@@ -157,20 +157,27 @@ func TestViewColumnsFullAndCompact(t *testing.T) {
 	tbl := newTable()
 	tbl.SetRows([]manager.Status{{Name: "tick", State: manager.Running, PID: 54405, UptimeSec: 133, Restarts: 2}})
 
-	tbl.SetLayout(tableLayout{Width: 40, Height: 10}) // 100-col terminal
-	full := tbl.View()
-	for _, want := range []string{"NAME", "STATE", "PID", "UPTIME", "RS", "tick", "running", "54405", "2m13s"} {
-		if !strings.Contains(full, want) {
-			t.Fatalf("full view missing %q:\n%s", want, full)
+	// A sidebar has no room for pid or uptime: the pid lives in the main
+	// pane's title, and uptime does not earn a column here.
+	tbl.SetLayout(tableLayout{Width: 40, Height: 10})
+	medium := tbl.View()
+	for _, want := range []string{"NAME", "STATE", "MEM", "tick", "running"} {
+		if !strings.Contains(medium, want) {
+			t.Fatalf("medium view missing %q:\n%s", want, medium)
+		}
+	}
+	for _, gone := range []string{"PID", "UPTIME", "54405"} {
+		if strings.Contains(medium, gone) {
+			t.Fatalf("medium view should not carry %q:\n%s", gone, medium)
 		}
 	}
 
-	tbl.SetLayout(tableLayout{Width: 28, Height: 10, Compact: true}) // 70-col terminal
+	tbl.SetLayout(tableLayout{Width: 28, Height: 10, Compact: true})
 	compact := tbl.View()
 	if !strings.Contains(compact, "NAME") || !strings.Contains(compact, "STATE") {
 		t.Fatalf("compact view missing NAME/STATE:\n%s", compact)
 	}
-	for _, gone := range []string{"PID", "UPTIME", "RS"} {
+	for _, gone := range []string{"MEM", "CPU", "RS"} {
 		if strings.Contains(compact, gone) {
 			t.Fatalf("compact view still has %q:\n%s", gone, compact)
 		}
@@ -231,15 +238,27 @@ func TestWideLayoutAddsCPUAndMem(t *testing.T) {
 
 	tbl.SetLayout(tableLayout{Width: 60, Height: 10, Wide: true})
 	wide := tbl.View()
-	for _, want := range []string{"CPU", "MEM", "142%", "318M"} {
+	for _, want := range []string{"CPU", "MEM", "RS", "142%", "318M"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide view missing %q:\n%s", want, wide)
 		}
 	}
 
+	// Medium keeps memory but drops CPU and restarts.
 	tbl.SetLayout(tableLayout{Width: 40, Height: 10})
+	medium := tbl.View()
+	if !strings.Contains(medium, "318M") {
+		t.Fatalf("medium view should keep memory:\n%s", medium)
+	}
+	for _, gone := range []string{"CPU", "142%"} {
+		if strings.Contains(medium, gone) {
+			t.Fatalf("medium view still has %q:\n%s", gone, medium)
+		}
+	}
+
+	tbl.SetLayout(tableLayout{Width: 28, Height: 10, Compact: true})
 	narrow := tbl.View()
-	for _, gone := range []string{"CPU", "MEM", "142%"} {
+	for _, gone := range []string{"CPU", "MEM", "142%", "318M"} {
 		if strings.Contains(narrow, gone) {
 			t.Fatalf("narrow view still has %q:\n%s", gone, narrow)
 		}

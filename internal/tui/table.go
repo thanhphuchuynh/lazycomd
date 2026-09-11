@@ -180,10 +180,10 @@ func (t tableModel) nameWidth() int {
 		w -= colHealth
 	}
 	if !t.compact {
-		w -= colPID + colUptime + colRS
-		if t.wide {
-			w -= colCPU + colMEM
-		}
+		w -= colMEM
+	}
+	if t.wide {
+		w -= colCPU + colRS
 	}
 	if w < 8 {
 		w = 8
@@ -203,10 +203,10 @@ func (t tableModel) View() string {
 	}
 	header += cell("NAME", nameW, styleHeader) + cell("STATE", colState, styleHeader)
 	if !t.compact {
-		header += cell("PID", colPID, styleHeader) + cell("UPTIME", colUptime, styleHeader) + cell("RS", colRS, styleHeader)
-		if t.wide {
-			header += cell("CPU", colCPU, styleHeader) + cell("MEM", colMEM, styleHeader)
-		}
+		header += cell("MEM", colMEM, styleHeader)
+	}
+	if t.wide {
+		header += cell("CPU", colCPU, styleHeader) + cell("RS", colRS, styleHeader)
 	}
 	b.WriteString(header)
 
@@ -228,17 +228,14 @@ func (t tableModel) View() string {
 		line += cell(r.Name, nameW, lipglossPlain()) +
 			cell(state, colState, stateStyles[r.State])
 		if !t.compact {
-			pid := "-"
-			if r.PID > 0 {
-				pid = fmt.Sprintf("%d", r.PID)
+			line += cell(formatMem(r.MemMB), colMEM, styleDim)
+		}
+		if t.wide {
+			restarts := "-"
+			if r.Restarts > 0 {
+				restarts = fmt.Sprintf("×%d", r.Restarts)
 			}
-			line += cell(pid, colPID, styleDim) +
-				cell(formatUptime(r.UptimeSec), colUptime, styleDim) +
-				cell(fmt.Sprintf("%d", r.Restarts), colRS, styleDim)
-			if t.wide {
-				line += cell(formatCPU(r.CPU), colCPU, styleDim) +
-					cell(formatMem(r.MemMB), colMEM, styleDim)
-			}
+			line += cell(formatCPU(r.CPU), colCPU, styleDim) + cell(restarts, colRS, styleDim)
 		}
 		b.WriteString("\n" + line)
 	}

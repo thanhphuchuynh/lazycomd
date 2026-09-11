@@ -13,7 +13,7 @@ func TestEveryScopeHasBindings(t *testing.T) {
 		}
 		seen[b.scope]++
 	}
-	for _, s := range []scope{scopeGlobal, scopeTable, scopeLogs, scopePalette} {
+	for _, s := range []scope{scopeGlobal, scopeCommands, scopePorts, scopePalette} {
 		if seen[s] == 0 {
 			t.Fatalf("scope %d has no bindings", s)
 		}
@@ -21,27 +21,24 @@ func TestEveryScopeHasBindings(t *testing.T) {
 }
 
 func TestKeyBarShowsTheFocusedScopePlusGlobal(t *testing.T) {
-	bar := keyBar(200, focusTable)
-	for _, want := range []string{"start", "stop", "restart", "palette", "quit"} {
+	bar := keyBar(200, focusCommands)
+	for _, want := range []string{"start", "stop", "restart", "palette", "quit", "panel"} {
 		if !strings.Contains(bar, want) {
-			t.Fatalf("table key bar missing %q:\n%s", want, bar)
+			t.Fatalf("commands key bar missing %q:\n%s", want, bar)
 		}
 	}
-	if strings.Contains(bar, "half page") {
-		t.Fatalf("table key bar shows a log-pane binding:\n%s", bar)
-	}
 
-	bar = keyBar(200, focusLogs)
-	if !strings.Contains(bar, "half page") {
-		t.Fatalf("log key bar missing the half-page binding:\n%s", bar)
-	}
+	bar = keyBar(200, focusPorts)
 	if strings.Contains(bar, "restart") {
-		t.Fatalf("log key bar shows a table binding:\n%s", bar)
+		t.Fatalf("ports key bar shows a commands binding:\n%s", bar)
+	}
+	if !strings.Contains(bar, "panel") {
+		t.Fatalf("ports key bar missing the global bindings:\n%s", bar)
 	}
 }
 
 func TestKeyBarFitsTheWidth(t *testing.T) {
-	bar := keyBar(30, focusTable)
+	bar := keyBar(30, focusCommands)
 	if got := len([]rune(bar)); got > 30 {
 		t.Fatalf("key bar is %d runes wide, want <= 30: %q", got, bar)
 	}
@@ -62,7 +59,7 @@ func TestHelpOverlayListsEveryBinding(t *testing.T) {
 func TestKeyBarKeepsGlobalKeysWhenSpaceIsTight(t *testing.T) {
 	// At a realistic width the pane-specific hints get dropped first: losing
 	// "q quit" and "? help" is the one thing the bar must never do.
-	bar := keyBar(100, focusTable)
+	bar := keyBar(100, focusCommands)
 	for _, want := range []string{"q quit", "? help"} {
 		if !strings.Contains(bar, want) {
 			t.Fatalf("key bar dropped %q at width 100:\n%s", want, bar)

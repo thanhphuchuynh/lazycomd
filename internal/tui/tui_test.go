@@ -41,12 +41,17 @@ func TestStatusMsgPopulatesTheTable(t *testing.T) {
 
 	m, _ = step(t, m, statusMsg{{Name: "tick", State: manager.Running, PID: 42, UptimeSec: 5}})
 	view := m.View()
-	for _, want := range []string{"tick", "running", "42"} {
+	for _, want := range []string{"tick", "running"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
 	}
-	if !strings.Contains(m.header(), "1 commands · 1 running") {
+	// The sidebar is too narrow for a PID column, so the main pane's title
+	// carries it instead.
+	if !strings.Contains(view, "pid 42") {
+		t.Fatalf("main pane should name the pid:\n%s", view)
+	}
+	if !strings.Contains(m.header(), "1 of 1 running") {
 		t.Fatalf("header = %q", m.header())
 	}
 }

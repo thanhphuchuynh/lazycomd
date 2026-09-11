@@ -187,6 +187,16 @@ func (l logsModel) Title() string {
 	return fmt.Sprintf("%s — paused (%d lines)", l.name, len(l.lines))
 }
 
+// Body is the scrollback without the pane's own title, for a caller that
+// draws its own border.
+func (l logsModel) Body() string {
+	body := l.vp.View()
+	if l.filter.editing {
+		body += "\n" + l.filter.input.View()
+	}
+	return body
+}
+
 func (l logsModel) View() string {
 	title := styleHeader.Render(truncate(l.Title(), l.vp.Width))
 	body := lipgloss.JoinVertical(lipgloss.Left, title, l.vp.View())
