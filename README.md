@@ -56,14 +56,16 @@ explains itself.
 | `s` | Commands | start, dependencies first |
 | `S` | Commands | stop |
 | `r` | Commands | restart |
-| `p` | anywhere | fuzzy command palette |
+| `p` | anywhere | fuzzy command search |
+| `i` | Commands | detail for the selected command: spec, state, ports, health |
 | `a` | Commands | add a command, writing it to the config |
 | `e` | Commands | edit the selected command |
 | `d` | Commands | delete it, after confirming which file changes |
 | `ctrl+d` `ctrl+u` | anywhere | scroll the main pane |
 | `f` | anywhere | toggle log follow |
-| `/` | anywhere | filter the log pane |
-| `esc` | anywhere | clear the log filter |
+| `/` | Commands | filter the log pane |
+| `/` | Ports | search ports by number, address, process, pid or owner |
+| `esc` | anywhere | clear the filter, or close the detail pane |
 | `?` | anywhere | help overlay |
 | `q` `ctrl+c` | anywhere | quit (the daemon keeps running) |
 
