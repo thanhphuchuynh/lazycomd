@@ -4,6 +4,7 @@ import (
 	"log"
 	"sort"
 	"sync"
+	"syscall"
 )
 
 // StartAutostart starts every command marked autostart, dependencies first,
@@ -69,6 +70,9 @@ func (m *Manager) KillAll() {
 			p.restartTimer.Stop()
 			p.restartTimer = nil
 		}
+		// Direct group signal, not p.cancel: the context watcher is gone
+		// once the direct child exits.
+		_ = killGroup(p.PID, syscall.SIGKILL)
 		if p.cancel != nil {
 			p.cancel()
 		}

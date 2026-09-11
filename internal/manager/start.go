@@ -3,6 +3,8 @@ package manager
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -39,11 +41,22 @@ func (m *Manager) startLocked(name string) error {
 		return err
 	}
 
+	// We own the output pipe rather than letting os/exec own it. With an
+	// io.Writer stdout, exec's Wait blocks until every inherited copy of the
+	// pipe is closed, so one late-forked grandchild that outlives its parent
+	// would hang Stop for that grandchild's whole lifetime.
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		p.State = Failed
+		fmt.Fprintf(p.Logs, "lazycomd: pipe: %v\n", err)
+		return err
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, r.Argv[0], r.Argv[1:]...)
 	cmd.Dir = r.Cwd
 	cmd.Env = r.Env
-	cmd.Stdout, cmd.Stderr = p.Logs, p.Logs
+	cmd.Stdout, cmd.Stderr = pw, pw
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Escalation path: SIGKILL the whole group, not just the parent.
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid, syscall.SIGKILL) }
@@ -51,10 +64,19 @@ func (m *Manager) startLocked(name string) error {
 	p.State = Starting
 	if err := cmd.Start(); err != nil {
 		cancel()
+		pr.Close()
+		pw.Close()
 		p.State = Failed
 		fmt.Fprintf(p.Logs, "lazycomd: spawn failed: %v\n", err)
 		return err
 	}
+	// The child holds the only write end we care about now.
+	pw.Close()
+	logs := p.Logs
+	go func() {
+		defer pr.Close()
+		_, _ = io.Copy(logs, pr)
+	}()
 
 	p.cmd, p.cancel = cmd, cancel
 	p.PID, p.Started = cmd.Process.Pid, time.Now()
@@ -123,11 +145,23 @@ func (m *Manager) terminate(p *Process) {
 	select {
 	case <-done:
 	case <-time.After(m.Grace):
+		// Signal the group directly: cmd.Cancel runs through the context
+		// watcher, which stops once the direct child exits, so it cannot be
+		// relied on to reach a surviving group member.
+		_ = killGroup(pid, syscall.SIGKILL)
 		if cancel != nil {
 			cancel()
 		}
-		<-done
+		select {
+		case <-done:
+		case <-time.After(m.Grace):
+			// Unreapable: something in the group is stuck in the kernel.
+			// Leave it; the reaper still finishes the state transition.
+		}
 	}
+	// Sweep late-forked group members that missed the signals above. The
+	// leader's pid is still the group id even once the leader is gone.
+	_ = killGroup(pid, syscall.SIGKILL)
 }
 
 // killGroup signals the whole process group so child trees die with their

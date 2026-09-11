@@ -1,6 +1,8 @@
 package manager
 
 import (
+	"errors"
+	"syscall"
 	"testing"
 	"time"
 
@@ -146,4 +148,36 @@ func TestShouldRestart(t *testing.T) {
 			t.Fatalf("shouldRestart(%q, %d) = %v, want %v", tc.policy, tc.code, got, tc.want)
 		}
 	}
+}
+
+// TestOrphanHoldingStdoutDoesNotBlockStop guards the os/exec trap: if the
+// command's stdout is an io.Writer, Wait blocks until every inherited copy of
+// the pipe closes, so a grandchild outliving its parent used to hang Stop for
+// the grandchild's whole lifetime.
+func TestOrphanHoldingStdoutDoesNotBlockStop(t *testing.T) {
+	m := testManager(t, map[string]config.Command{
+		// The parent exits at once and leaves sleep holding stdout.
+		"a": {Cmd: []string{"sh", "-c", "sleep 30 & exit 0"}, Cwd: "/tmp"},
+	})
+	if err := m.Start("a"); err != nil {
+		t.Fatal(err)
+	}
+	pgid := waitState(t, m, "a", Running).PID
+
+	t0 := time.Now()
+	if err := m.Stop("a"); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(t0); elapsed > 2*time.Second {
+		t.Fatalf("Stop took %v, want it not to wait on the orphan", elapsed)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(-pgid, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("orphan process group %d still alive after stop", pgid)
 }
