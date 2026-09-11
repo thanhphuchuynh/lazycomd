@@ -18,6 +18,9 @@ type Buffer struct {
 	buf  []byte
 	w    int
 	full bool
+
+	subs map[int]chan []byte
+	next int
 }
 
 // New returns a Buffer holding the last size bytes.
@@ -25,13 +28,14 @@ func New(size int) *Buffer {
 	if size <= 0 {
 		size = DefaultSize
 	}
-	return &Buffer{buf: make([]byte, size)}
+	return &Buffer{buf: make([]byte, size), subs: make(map[int]chan []byte)}
 }
 
 // Write appends p, dropping the oldest bytes if the ring is full.
 func (b *Buffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	b.appendLocked(p)
+	b.fanoutLocked(p)
 	b.mu.Unlock()
 	return len(p), nil
 }
