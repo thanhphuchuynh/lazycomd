@@ -69,6 +69,9 @@ explains itself.
 | `?` | anywhere | help overlay |
 | `q` `ctrl+c` | anywhere | quit (the daemon keeps running) |
 
+The Ports panel is view only: it lists every listener on the machine, not
+just lazycomd's, and start and stop act on commands in the Commands panel.
+
 The mouse works as well: clicking a panel focuses it, clicking a row selects
 it, clicking a match in the search box goes to it, and the wheel scrolls
 whatever is under the pointer.
