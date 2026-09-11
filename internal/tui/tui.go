@@ -285,7 +285,7 @@ func (m *Model) layout() {
 	// Too narrow to split: the table takes everything.
 	if m.width < 60 {
 		m.tableW = m.width
-		m.table.SetSize(m.tableW, m.bodyH, true)
+		m.table.SetLayout(tableLayout{Width: m.tableW, Height: m.bodyH, Compact: true})
 		m.logs.SetSize(1, m.bodyH)
 		if m.focus == focusLogs {
 			m.focus = focusTable
@@ -301,7 +301,12 @@ func (m *Model) layout() {
 	if m.tableW > m.width-20 {
 		m.tableW = m.width - 20
 	}
-	m.table.SetSize(m.tableW, m.bodyH, m.width < 80)
+	m.table.SetLayout(tableLayout{
+		Width:   m.tableW,
+		Height:  m.bodyH,
+		Compact: m.width < 80,
+		Wide:    m.width >= 110,
+	})
 	m.logs.SetSize(m.width-m.tableW-1, m.bodyH)
 }
 
