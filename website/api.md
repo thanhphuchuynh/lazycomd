@@ -1,6 +1,6 @@
 ---
+layout: default
 title: API
-description: Unix socket, optional TCP token, and every /v1 route.
 ---
 
 Always on `~/.local/state/lazycomd/lazycomd.sock` (mode 0600 — file

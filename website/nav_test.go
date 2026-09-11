@@ -1,54 +1,31 @@
 package website
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestDocsJSONPagesExist(t *testing.T) {
-	raw, err := os.ReadFile("docs.json")
+func TestPagesExist(t *testing.T) {
+	want := []string{"index.md", "install.md", "tui.md", "cli.md", "configuration.md", "api.md", "behavior.md"}
+	for _, p := range want {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("missing %s: %v", p, err)
+		}
+	}
+}
+
+func TestConfigIsGitHubPages(t *testing.T) {
+	b, err := os.ReadFile("_config.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc struct {
-		Name       string `json:"name"`
-		Theme      string `json:"theme"`
-		Navigation struct {
-			Groups []struct {
-				Group string   `json:"group"`
-				Pages []string `json:"pages"`
-			} `json:"groups"`
-		} `json:"navigation"`
+	s := string(b)
+	if !strings.Contains(s, "baseurl: /lazycomd") {
+		t.Fatalf("_config.yml missing GitHub Pages baseurl:\n%s", s)
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if _, err := os.Stat(filepath.Join("_layouts", "default.html")); err != nil {
 		t.Fatal(err)
-	}
-	if doc.Name != "lazycomd" || doc.Theme != "mint" {
-		t.Fatalf("name=%q theme=%q", doc.Name, doc.Theme)
-	}
-	wantGroups := []string{"Get started", "Use", "Configure", "Reference"}
-	if len(doc.Navigation.Groups) != len(wantGroups) {
-		t.Fatalf("groups = %d, want %d", len(doc.Navigation.Groups), len(wantGroups))
-	}
-	var pages []string
-	for i, g := range doc.Navigation.Groups {
-		if g.Group != wantGroups[i] {
-			t.Errorf("group[%d] = %q, want %q", i, g.Group, wantGroups[i])
-		}
-		pages = append(pages, g.Pages...)
-	}
-	wantPages := []string{"index", "install", "tui", "cli", "configuration", "api", "behavior"}
-	if len(pages) != len(wantPages) {
-		t.Fatalf("pages = %v, want %v", pages, wantPages)
-	}
-	for i, p := range wantPages {
-		if pages[i] != p {
-			t.Errorf("page[%d] = %q, want %q", i, pages[i], p)
-		}
-		if _, err := os.Stat(filepath.Join(p + ".mdx")); err != nil {
-			t.Errorf("missing %s.mdx: %v", p, err)
-		}
 	}
 }

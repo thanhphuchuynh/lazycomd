@@ -1,6 +1,6 @@
 ---
+layout: default
 title: TUI
-description: Panels, keys, mouse, config form, and the ports dashboard.
 ---
 
 Run `lazycomd` with no arguments:

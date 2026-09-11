@@ -1,6 +1,6 @@
 ---
+layout: default
 title: CLI
-description: Subcommands, name resolution, and exit codes.
 ---
 
 | Command | What it does |

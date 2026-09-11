@@ -1,6 +1,6 @@
 ---
+layout: default
 title: Install
-description: Curl the binary, start the daemon, enable login autostart.
 ---
 
 ```bash
@@ -30,7 +30,6 @@ copy a unit from `contrib/` or run the curl installer.
 lazycomd serve
 ```
 
-<Info>
-A second `serve` prints `already running` and exits 1. A leftover socket
+> A second `serve` prints `already running` and exits 1. A leftover socket
 with nothing behind it is cleared.
-</Info>
+

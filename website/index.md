@@ -1,12 +1,12 @@
 ---
+layout: default
 title: lazycomd
-description: One user-wide daemon for long-lived dev commands.
 ---
 
 One daemon for every long-running command. Quit the TUI, nothing dies.
 Ports tell you who owns 3000.
 
-<img src="/demo.gif" alt="lazycomd TUI" />
+![lazycomd TUI]({{ '/demo.gif' | relative_url }})
 
 ```bash
 curl -sSfL https://github.com/thanhphuchuynh/lazycomd/releases/latest/download/install.sh | sh

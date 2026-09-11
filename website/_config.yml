@@ -1,0 +1,14 @@
+title: lazycomd
+description: One user-wide daemon for long-lived dev commands.
+url: https://thanhphuchuynh.github.io
+baseurl: /lazycomd
+markdown: kramdown
+kramdown:
+  input: GFM
+permalink: pretty
+exclude:
+  - nav_test.go
+  - render_demo_gif.py
+  - demo.tape
+  - demo.yaml
+  - docs.json

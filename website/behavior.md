@@ -1,6 +1,6 @@
 ---
+layout: default
 title: Behavior
-description: Reload, dependencies, process groups, logs, and ports.
 ---
 
 - **Reload never restarts anything.** A changed spec on a running command is

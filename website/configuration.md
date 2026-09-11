@@ -1,6 +1,6 @@
 ---
+layout: default
 title: Configuration
-description: Global YAML, project files, and environment overrides.
 ---
 
 Global config: `~/.config/lazycomd/config.yaml` (`$XDG_CONFIG_HOME` and
