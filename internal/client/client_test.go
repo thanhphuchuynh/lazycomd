@@ -27,7 +27,7 @@ func daemon(t *testing.T, cmds map[string]config.Command, token string) *Client 
 
 	s := api.NewServer(m, token, func() (*config.Config, error) {
 		return &config.Config{Commands: cmds}, nil
-	})
+	}, nil)
 	h := s.Handler()
 	if token != "" {
 		h = s.AuthHandler()
@@ -226,3 +226,14 @@ func (l *lineCatcher) Write(p []byte) (int, error) {
 }
 
 func (l *lineCatcher) String() string { return l.buf.String() }
+
+func TestClientSystem(t *testing.T) {
+	c := daemon(t, map[string]config.Command{"a": echoer()}, "")
+	snap, err := c.System()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Vitals == nil || snap.Health == nil {
+		t.Fatalf("snapshot sections missing: %+v", snap)
+	}
+}

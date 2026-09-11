@@ -14,7 +14,7 @@ import (
 func TestAuthHandlerRequiresToken(t *testing.T) {
 	m := manager.New(&config.Config{Commands: map[string]config.Command{"a": sleeper()}}, t.TempDir())
 	t.Cleanup(m.Shutdown)
-	s := NewServer(m, "s3cret", func() (*config.Config, error) { return nil, nil })
+	s := NewServer(m, "s3cret", func() (*config.Config, error) { return nil, nil }, nil)
 	c := serveUnix(t, s.AuthHandler())
 
 	if code, _ := do(t, c, "GET", "/v1/commands", ""); code != 401 {
@@ -49,7 +49,7 @@ func TestAuthHandlerRequiresToken(t *testing.T) {
 func TestAuthHandlerWithEmptyTokenRejectsEverything(t *testing.T) {
 	m := manager.New(&config.Config{Commands: map[string]config.Command{}}, t.TempDir())
 	t.Cleanup(m.Shutdown)
-	s := NewServer(m, "", func() (*config.Config, error) { return nil, nil })
+	s := NewServer(m, "", func() (*config.Config, error) { return nil, nil }, nil)
 	c := serveUnix(t, s.AuthHandler())
 
 	req, err := http.NewRequest("GET", "http://unix/v1/commands", nil)
@@ -73,7 +73,7 @@ func TestReloadEndpointAppliesNewConfig(t *testing.T) {
 	t.Cleanup(m.Shutdown)
 
 	next := &config.Config{Commands: map[string]config.Command{"a": sleeper(), "b": sleeper()}}
-	s := NewServer(m, "", func() (*config.Config, error) { return next, nil })
+	s := NewServer(m, "", func() (*config.Config, error) { return next, nil }, nil)
 	c := serveUnix(t, s.Handler())
 
 	if code, body := do(t, c, "POST", "/v1/reload", ""); code != 200 {
@@ -89,7 +89,7 @@ func TestReloadEndpointRejectsBadConfig(t *testing.T) {
 	t.Cleanup(m.Shutdown)
 
 	broken := errors.New(filepath.Join("x", "config.yaml") + ": field listten not found")
-	s := NewServer(m, "", func() (*config.Config, error) { return nil, broken })
+	s := NewServer(m, "", func() (*config.Config, error) { return nil, broken }, nil)
 	c := serveUnix(t, s.Handler())
 
 	code, body := do(t, c, "POST", "/v1/reload", "")

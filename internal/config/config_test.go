@@ -94,3 +94,69 @@ func TestValidateErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestHealthAndPortAccepted(t *testing.T) {
+	p := write(t, `
+commands:
+  web:
+    cmd: ["npm", "start"]
+    port: 3000
+    health: http://localhost:3000/healthz
+`)
+	f, err := ParseFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c := f.Commands["web"]
+	if c.Port != 3000 {
+		t.Fatalf("port = %d, want 3000", c.Port)
+	}
+	if c.Health != "http://localhost:3000/healthz" {
+		t.Fatalf("health = %q", c.Health)
+	}
+}
+
+func TestHealthAndPortValidation(t *testing.T) {
+	cases := []struct{ name, body, want string }{
+		{"bad scheme", "commands:\n  a:\n    cmd: [\"x\"]\n    health: ftp://localhost/health\n", "scheme must be http or https"},
+		{"no host", "commands:\n  a:\n    cmd: [\"x\"]\n    health: http:///health\n", "missing host"},
+		{"unparseable", "commands:\n  a:\n    cmd: [\"x\"]\n    health: \"://\"\n", "health"},
+		{"port too high", "commands:\n  a:\n    cmd: [\"x\"]\n    port: 70000\n", "out of range"},
+		{"port negative", "commands:\n  a:\n    cmd: [\"x\"]\n    port: -1\n", "out of range"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := ParseFile(write(t, tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Validate(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestIntendedPort(t *testing.T) {
+	cases := []struct {
+		name string
+		cmd  Command
+		want int
+	}{
+		{"explicit wins", Command{Port: 4310, Health: "http://localhost:3000/h"}, 4310},
+		{"from health url", Command{Health: "http://localhost:3000/h"}, 3000},
+		{"http default", Command{Health: "http://example.test/h"}, 80},
+		{"https default", Command{Health: "https://example.test/h"}, 443},
+		{"neither", Command{}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cmd.IntendedPort(); got != tc.want {
+				t.Fatalf("IntendedPort() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

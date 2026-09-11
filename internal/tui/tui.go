@@ -11,6 +11,7 @@ import (
 
 	"github.com/tphuc/lazycomd/internal/client"
 	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/tphuc/lazycomd/internal/probe"
 )
 
 var styleWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
@@ -24,6 +25,7 @@ type Model struct {
 	table   tableModel
 	logs    logsModel
 	palette paletteModel
+	system  systemModel
 
 	focus   focus
 	overlay overlay
@@ -49,13 +51,14 @@ func New(c *client.Client, s *sink) Model {
 		table:   newTable(),
 		logs:    newLogs(),
 		palette: newPalette(),
+		system:  newSystem(),
 		focus:   focusTable,
 		now:     time.Now,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(fetchStatus(m.client), tickCmd(tickConnected))
+	return tea.Batch(fetchStatus(m.client), tickCmd(tickConnected), fetchSystem(m.client), systemTickCmd())
 }
 
 // tickInterval polls faster while the daemon is answering.
@@ -107,6 +110,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case systemTickMsg:
+		return m, tea.Batch(fetchSystem(m.client), systemTickCmd())
+
+	case systemMsg:
+		m.system.SetSnapshot(probe.Snapshot(msg))
+		return m, nil
+
+	case systemErrMsg:
+		// The banner already reports an unreachable daemon; keep the last
+		// good snapshot on screen rather than blanking the view.
+		return m, nil
+
 	case streamEndedMsg:
 		if m.stream != nil && m.stream.name == msg.name {
 			m.stream = nil // the next selection sync reopens it
@@ -132,6 +147,21 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.overlay == overlayPorts {
+		switch s {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "d", "esc", "q":
+			m.overlay = overlayNone
+			return m, nil
+		case "?":
+			m.overlay = overlayHelp
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.system, cmd = m.system.Update(k)
+		return m, cmd
+	}
 	if s == "ctrl+c" {
 		return m, tea.Quit
 	}
@@ -152,6 +182,9 @@ func (m Model) handleTableKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "?":
 		m.overlay = overlayHelp
+		return m, nil
+	case "d":
+		m.overlay = overlayPorts
 		return m, nil
 	case "tab":
 		if m.logPaneVisible() {
@@ -208,6 +241,9 @@ func (m Model) handleLogKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "?":
 			m.overlay = overlayHelp
+			return m, nil
+		case "d":
+			m.overlay = overlayPorts
 			return m, nil
 		case "tab":
 			m.focus = focusTable
@@ -285,7 +321,7 @@ func (m *Model) layout() {
 	// Too narrow to split: the table takes everything.
 	if m.width < 60 {
 		m.tableW = m.width
-		m.table.SetSize(m.tableW, m.bodyH, true)
+		m.table.SetLayout(tableLayout{Width: m.tableW, Height: m.bodyH, Compact: true})
 		m.logs.SetSize(1, m.bodyH)
 		if m.focus == focusLogs {
 			m.focus = focusTable
@@ -301,7 +337,13 @@ func (m *Model) layout() {
 	if m.tableW > m.width-20 {
 		m.tableW = m.width - 20
 	}
-	m.table.SetSize(m.tableW, m.bodyH, m.width < 80)
+	m.system.SetSize(m.width, m.bodyH)
+	m.table.SetLayout(tableLayout{
+		Width:   m.tableW,
+		Height:  m.bodyH,
+		Compact: m.width < 80,
+		Wide:    m.width >= 110,
+	})
 	m.logs.SetSize(m.width-m.tableW-1, m.bodyH)
 }
 
@@ -329,6 +371,9 @@ func (m Model) bottom() string {
 func (m Model) View() string {
 	if m.overlay == overlayHelp {
 		return strings.Join([]string{m.header(), helpOverlay(m.width, m.bodyH), m.bottom()}, "\n")
+	}
+	if m.overlay == overlayPorts {
+		return strings.Join([]string{m.header(), m.system.View(), m.bottom()}, "\n")
 	}
 
 	left := m.table.View()

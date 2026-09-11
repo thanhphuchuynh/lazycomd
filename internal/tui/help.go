@@ -17,6 +17,7 @@ type overlay int
 const (
 	overlayNone overlay = iota
 	overlayHelp
+	overlayPorts
 )
 
 // scope is where a binding applies.
@@ -53,6 +54,7 @@ var bindings = []binding{
 	{"f", "follow", scopeGlobal},
 	{"/", "filter", scopeGlobal},
 	{"tab", "switch pane", scopeGlobal},
+	{"d", "ports", scopeGlobal},
 	{"?", "help", scopeGlobal},
 	{"q", "quit", scopeGlobal},
 }

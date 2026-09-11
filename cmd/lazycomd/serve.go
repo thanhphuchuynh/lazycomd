@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/tphuc/lazycomd/internal/config"
 	"github.com/tphuc/lazycomd/internal/manager"
 	"github.com/tphuc/lazycomd/internal/paths"
+	"github.com/tphuc/lazycomd/internal/probe"
 )
 
 // runServe runs the daemon in the foreground. Daemonization belongs to
@@ -46,9 +48,17 @@ func runServe(args []string) int {
 	}
 
 	mgr := manager.New(cfg, paths.LogDir())
+
+	// The sampler learns about commands through the manager's accessors, so a
+	// reload is picked up on the next tick with no extra wiring.
+	sampler := probe.New(mgr.RunningPIDs, mgr.HealthURLs, mgr.IntendedPorts)
+	probeCtx, stopProbe := context.WithCancel(context.Background())
+	defer stopProbe()
+	sampler.Start(probeCtx)
+
 	srv := api.NewServer(mgr, token, func() (*config.Config, error) {
 		return config.Load(*cfgPath)
-	})
+	}, sampler)
 
 	sock := paths.SocketPath()
 	ul, err := listenUnix(sock)
@@ -83,6 +93,7 @@ func runServe(args []string) int {
 	log.Print("lazycomd: draining, interrupt again to kill immediately")
 
 	unixSrv.Close()
+	stopProbe()
 	drained := make(chan struct{})
 	go func() {
 		mgr.Shutdown()

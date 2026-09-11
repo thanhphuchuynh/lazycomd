@@ -47,7 +47,7 @@ func key(s string) tea.KeyMsg {
 
 func TestSetRowsKeepsSelectionByName(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(60, 10, false)
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10})
 	tbl.SetRows(rows("a", "b", "c"))
 
 	tbl, _ = tbl.Update(key("j")) // select b
@@ -65,7 +65,7 @@ func TestSetRowsKeepsSelectionByName(t *testing.T) {
 
 func TestSetRowsClampsWhenSelectionDisappears(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(60, 10, false)
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10})
 	tbl.SetRows(rows("a", "b", "c"))
 	tbl, _ = tbl.Update(key("G")) // select c
 
@@ -78,7 +78,7 @@ func TestSetRowsClampsWhenSelectionDisappears(t *testing.T) {
 
 func TestSetRowsEmpty(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(60, 10, false)
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10})
 	tbl.SetRows(rows("a"))
 	tbl.SetRows(nil)
 	if _, ok := tbl.Selected(); ok {
@@ -88,7 +88,7 @@ func TestSetRowsEmpty(t *testing.T) {
 
 func TestCursorRespectsBounds(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(60, 10, false)
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10})
 	tbl.SetRows(rows("a", "b"))
 
 	for i := 0; i < 5; i++ {
@@ -107,7 +107,7 @@ func TestCursorRespectsBounds(t *testing.T) {
 
 func TestArrowKeysMoveToo(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(60, 10, false)
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10})
 	tbl.SetRows(rows("a", "b"))
 	tbl, _ = tbl.Update(key("down"))
 	if got, _ := tbl.Selected(); got.Name != "b" {
@@ -121,7 +121,7 @@ func TestArrowKeysMoveToo(t *testing.T) {
 
 func TestSelectName(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(60, 10, false)
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10})
 	tbl.SetRows(rows("a", "b", "c"))
 	tbl.SelectName("c")
 	if got, _ := tbl.Selected(); got.Name != "c" {
@@ -135,7 +135,7 @@ func TestSelectName(t *testing.T) {
 
 func TestMergeStatus(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(60, 10, false)
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10})
 	tbl.SetRows(rows("a", "b"))
 	tbl.MergeStatus(manager.Status{Name: "b", State: manager.Running, PID: 42})
 
@@ -157,7 +157,7 @@ func TestViewColumnsFullAndCompact(t *testing.T) {
 	tbl := newTable()
 	tbl.SetRows([]manager.Status{{Name: "tick", State: manager.Running, PID: 54405, UptimeSec: 133, Restarts: 2}})
 
-	tbl.SetSize(40, 10, false) // 100-col terminal
+	tbl.SetLayout(tableLayout{Width: 40, Height: 10}) // 100-col terminal
 	full := tbl.View()
 	for _, want := range []string{"NAME", "STATE", "PID", "UPTIME", "RS", "tick", "running", "54405", "2m13s"} {
 		if !strings.Contains(full, want) {
@@ -165,7 +165,7 @@ func TestViewColumnsFullAndCompact(t *testing.T) {
 		}
 	}
 
-	tbl.SetSize(28, 10, true) // 70-col terminal
+	tbl.SetLayout(tableLayout{Width: 28, Height: 10, Compact: true}) // 70-col terminal
 	compact := tbl.View()
 	if !strings.Contains(compact, "NAME") || !strings.Contains(compact, "STATE") {
 		t.Fatalf("compact view missing NAME/STATE:\n%s", compact)
@@ -179,7 +179,7 @@ func TestViewColumnsFullAndCompact(t *testing.T) {
 
 func TestViewMarksCursorAndDirtySpec(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(40, 10, false)
+	tbl.SetLayout(tableLayout{Width: 40, Height: 10})
 	tbl.SetRows([]manager.Status{
 		{Name: "a", State: manager.Running, SpecDirty: true},
 		{Name: "b", State: manager.Stopped},
@@ -196,7 +196,7 @@ func TestViewMarksCursorAndDirtySpec(t *testing.T) {
 
 func TestViewScrollsToKeepCursorVisible(t *testing.T) {
 	tbl := newTable()
-	tbl.SetSize(40, 4, false) // header plus 3 rows
+	tbl.SetLayout(tableLayout{Width: 40, Height: 4}) // header plus 3 rows
 	tbl.SetRows(rows("r0", "r1", "r2", "r3", "r4", "r5"))
 	tbl, _ = tbl.Update(key("G"))
 
@@ -220,5 +220,75 @@ func TestFormatUptime(t *testing.T) {
 		if got := formatUptime(in); got != want {
 			t.Fatalf("formatUptime(%v) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestWideLayoutAddsCPUAndMem(t *testing.T) {
+	tbl := newTable()
+	tbl.SetRows([]manager.Status{
+		{Name: "web", State: manager.Running, PID: 1, CPU: 142.3, MemMB: 318.4},
+	})
+
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10, Wide: true})
+	wide := tbl.View()
+	for _, want := range []string{"CPU", "MEM", "142%", "318M"} {
+		if !strings.Contains(wide, want) {
+			t.Fatalf("wide view missing %q:\n%s", want, wide)
+		}
+	}
+
+	tbl.SetLayout(tableLayout{Width: 40, Height: 10})
+	narrow := tbl.View()
+	for _, gone := range []string{"CPU", "MEM", "142%"} {
+		if strings.Contains(narrow, gone) {
+			t.Fatalf("narrow view still has %q:\n%s", gone, narrow)
+		}
+	}
+}
+
+func TestHealthColumnOnlyAppearsWhenConfigured(t *testing.T) {
+	tbl := newTable()
+	tbl.SetLayout(tableLayout{Width: 60, Height: 10})
+
+	tbl.SetRows(rows("a", "b"))
+	if tbl.showHealth() {
+		t.Fatal("showHealth() = true with no health configured")
+	}
+	if strings.Contains(tbl.View(), "●") || strings.Contains(tbl.View(), "○") {
+		t.Fatalf("health markers present with no health configured:\n%s", tbl.View())
+	}
+
+	tbl.SetRows([]manager.Status{
+		{Name: "up", State: manager.Running, Health: &manager.HealthView{OK: true}},
+		{Name: "down", State: manager.Running, Health: &manager.HealthView{OK: false, Error: "refused"}},
+		{Name: "none", State: manager.Stopped},
+	})
+	view := tbl.View()
+	if !tbl.showHealth() {
+		t.Fatal("showHealth() = false with health results present")
+	}
+	if !strings.Contains(view, "●") {
+		t.Fatalf("no up marker:\n%s", view)
+	}
+	if !strings.Contains(view, "○") {
+		t.Fatalf("no down marker:\n%s", view)
+	}
+}
+
+func TestCPUAndMemFormatting(t *testing.T) {
+	if got := formatCPU(0); got != "-" {
+		t.Fatalf("formatCPU(0) = %q, want -", got)
+	}
+	if got := formatCPU(142.3); got != "142%" {
+		t.Fatalf("formatCPU(142.3) = %q", got)
+	}
+	if got := formatMem(0); got != "-" {
+		t.Fatalf("formatMem(0) = %q, want -", got)
+	}
+	if got := formatMem(318.4); got != "318M" {
+		t.Fatalf("formatMem(318.4) = %q", got)
+	}
+	if got := formatMem(2048); got != "2.0G" {
+		t.Fatalf("formatMem(2048) = %q, want gigabytes past 1024M", got)
 	}
 }

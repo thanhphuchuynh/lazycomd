@@ -20,6 +20,7 @@ import (
 
 	"github.com/tphuc/lazycomd/internal/manager"
 	"github.com/tphuc/lazycomd/internal/paths"
+	"github.com/tphuc/lazycomd/internal/probe"
 )
 
 // ErrNoDaemon means nothing is listening at the configured address.
@@ -211,4 +212,11 @@ func isDown(err error) bool {
 	return errors.Is(err, syscall.ENOENT) ||
 		errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.ECONNRESET)
+}
+
+// System returns the daemon's last machine sample: listening ports, per
+// command vitals and health, and any port conflicts.
+func (c *Client) System() (probe.Snapshot, error) {
+	var out probe.Snapshot
+	return out, c.do(context.Background(), "GET", "/v1/system", nil, &out)
 }
