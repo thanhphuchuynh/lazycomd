@@ -1,0 +1,131 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+type logsModel struct {
+	vp     viewport.Model
+	name   string
+	lines  []string
+	follow bool
+}
+
+func newLogs() logsModel {
+	return logsModel{vp: viewport.New(0, 0), follow: true}
+}
+
+func (l *logsModel) SetSize(w, h int) {
+	if w < 1 {
+		w = 1
+	}
+	if h < 2 {
+		h = 2
+	}
+	l.vp.Width = w
+	l.vp.Height = h - 1 // the title takes a line
+	l.refresh()
+}
+
+// Reset points the pane at a different command: new scrollback, follow on.
+func (l *logsModel) Reset(name string, lines []string) {
+	l.name = name
+	l.lines = append([]string(nil), lines...)
+	l.capLines()
+	l.follow = true
+	l.refresh()
+	l.vp.GotoBottom()
+}
+
+// Append adds one live line, scrolling only while following.
+func (l *logsModel) Append(line string) {
+	l.lines = append(l.lines, line)
+	l.capLines()
+	l.refresh()
+	if l.follow {
+		l.vp.GotoBottom()
+	}
+}
+
+func (l *logsModel) capLines() {
+	if len(l.lines) <= maxLogLines {
+		return
+	}
+	l.lines = append([]string(nil), l.lines[len(l.lines)-maxLogLines:]...)
+}
+
+// visible is the seam the filter hooks into; without a filter it is every
+// line.
+func (l logsModel) visible() []string { return l.lines }
+
+// refresh rebuilds the viewport content, truncating each line to the pane
+// width.
+//
+// ponytail: truncate, don't wrap. Keeps one line == one row, so filter and
+// scroll math stay trivial. Wrap when reading long JSON lines actually hurts.
+func (l *logsModel) refresh() {
+	src := l.visible()
+	out := make([]string, 0, len(src))
+	for _, line := range src {
+		out = append(out, truncate(line, l.vp.Width))
+	}
+	l.vp.SetContent(strings.Join(out, "\n"))
+}
+
+func (l logsModel) Name() string    { return l.name }
+func (l logsModel) Following() bool { return l.follow }
+func (l logsModel) LineCount() int  { return len(l.lines) }
+func (l logsModel) AtBottom() bool  { return l.vp.AtBottom() }
+
+func (l logsModel) Update(msg tea.Msg) (logsModel, tea.Cmd) {
+	k, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return l, nil
+	}
+	switch k.String() {
+	case "f":
+		l.follow = !l.follow
+		if l.follow {
+			l.vp.GotoBottom()
+		}
+	case "j", "down":
+		l.follow = false
+		l.vp.LineDown(1)
+	case "k", "up":
+		l.follow = false
+		l.vp.LineUp(1)
+	case "ctrl+d":
+		l.follow = false
+		l.vp.HalfViewDown()
+	case "ctrl+u":
+		l.follow = false
+		l.vp.HalfViewUp()
+	case "g":
+		l.follow = false
+		l.vp.GotoTop()
+	case "G":
+		l.follow = false
+		l.vp.GotoBottom()
+	}
+	return l, nil
+}
+
+func (l logsModel) Title() string {
+	if l.name == "" {
+		return "no command selected"
+	}
+	if l.follow {
+		return l.name + " — following"
+	}
+	return fmt.Sprintf("%s — paused (%d lines)", l.name, len(l.lines))
+}
+
+func (l logsModel) View() string {
+	title := styleHeader.Render(truncate(l.Title(), l.vp.Width))
+	return lipgloss.JoinVertical(lipgloss.Left, title, l.vp.View())
+}
