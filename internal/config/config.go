@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"sort"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,6 +36,8 @@ type Command struct {
 	Log       bool              `yaml:"log"`
 	Size      int               `yaml:"size"`
 	DependsOn []string          `yaml:"depends_on"`
+	Health    string            `yaml:"health"`
+	Port      int               `yaml:"port"`
 }
 
 // File is one YAML file on disk. Listen, TokenFile and Projects are
@@ -107,5 +111,50 @@ func (c *Command) validate(name string) error {
 	if c.Size == 0 {
 		c.Size = DefaultBufSize
 	}
+	if c.Health != "" {
+		u, err := url.Parse(c.Health)
+		if err != nil {
+			return fmt.Errorf("command %q: health %q: %w", name, c.Health, err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("command %q: health %q: scheme must be http or https", name, c.Health)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("command %q: health %q: missing host", name, c.Health)
+		}
+	}
+	if c.Port != 0 && (c.Port < 1 || c.Port > 65535) {
+		return fmt.Errorf("command %q: port %d out of range 1-65535", name, c.Port)
+	}
 	return nil
+}
+
+// IntendedPort is the port this command means to bind: the explicit port:
+// field, otherwise the port in its health URL, otherwise 0. Used to tell a
+// command's own listener apart from something else squatting on its port.
+func (c Command) IntendedPort() int {
+	if c.Port != 0 {
+		return c.Port
+	}
+	if c.Health == "" {
+		return 0
+	}
+	u, err := url.Parse(c.Health)
+	if err != nil {
+		return 0
+	}
+	if p := u.Port(); p != "" {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	switch u.Scheme {
+	case "http":
+		return 80
+	case "https":
+		return 443
+	}
+	return 0
 }
