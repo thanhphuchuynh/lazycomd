@@ -10,41 +10,47 @@ import (
 	"github.com/tphuc/lazycomd/internal/probe"
 )
 
-func TestDTogglesThePortsView(t *testing.T) {
+func TestPortsPanelIsAlwaysVisible(t *testing.T) {
 	m := modelWithRows(t, "a")
 	m, _ = step(t, m, systemMsg(probe.Snapshot{
 		Ports:     []probe.Port{{Addr: "*", Port: 5432, PID: 1183, Process: "postgres"}},
 		SampledAt: map[string]time.Time{"ports": time.Now()},
 	}))
 
-	m, _ = step(t, m, key("d"))
-	if m.overlay != overlayPorts {
-		t.Fatal("d should open the ports view")
+	// No key needed: the panel is on screen next to the commands.
+	view := m.View()
+	if !strings.Contains(view, "postgres") {
+		t.Fatalf("ports panel not rendered without pressing anything:\n%s", view)
 	}
-	if !strings.Contains(m.View(), "postgres") {
-		t.Fatalf("ports not rendered:\n%s", m.View())
-	}
-
-	m, _ = step(t, m, key("d"))
-	if m.overlay != overlayNone {
-		t.Fatal("d should close the ports view")
-	}
-
-	m, _ = step(t, m, key("d"))
-	m, _ = step(t, m, key("esc"))
-	if m.overlay != overlayNone {
-		t.Fatal("esc should close the ports view")
+	if !strings.Contains(view, "3 Ports") || !strings.Contains(view, "2 Commands") {
+		t.Fatalf("panel titles missing:\n%s", view)
 	}
 }
 
-func TestPortsViewTakesScrollKeys(t *testing.T) {
+func TestPortsPanelTakesNavigationWhenFocused(t *testing.T) {
 	m := modelWithRows(t, "a", "b")
-	m, _ = step(t, m, key("d"))
+	m, _ = step(t, m, systemMsg(probe.Snapshot{
+		Ports: []probe.Port{
+			{Addr: "*", Port: 5432, PID: 1183, Process: "postgres"},
+			{Addr: "*", Port: 7777, PID: 54405, Process: "lazycomd"},
+		},
+		SampledAt: map[string]time.Time{"ports": time.Now()},
+	}))
 
-	before, _ := m.table.Selected()
+	m, _ = step(t, m, key("3"))
+	if m.focus != focusPorts {
+		t.Fatal("3 should focus the ports panel")
+	}
+
+	beforeCmd, _ := m.table.Selected()
 	m, _ = step(t, m, key("j"))
-	if after, _ := m.table.Selected(); after.Name != before.Name {
-		t.Fatal("j moved the table cursor while the ports view was open")
+
+	sel, ok := m.system.Selected()
+	if !ok || sel.Port != 7777 {
+		t.Fatalf("ports cursor did not move: %+v", sel)
+	}
+	if after, _ := m.table.Selected(); after.Name != beforeCmd.Name {
+		t.Fatal("j moved the command cursor while Ports had focus")
 	}
 }
 
@@ -70,18 +76,17 @@ func TestSystemErrorDoesNotClearTheLastSnapshot(t *testing.T) {
 	}
 }
 
-func TestHelpListsTheDBinding(t *testing.T) {
-	if !strings.Contains(helpOverlay(80, 40), "ports") {
-		t.Fatal("help overlay does not mention the ports view")
-	}
-	var found bool
-	for _, b := range bindings {
-		if b.key == "d" {
-			found = true
+func TestHelpListsThePanelKeys(t *testing.T) {
+	help := helpOverlay(80, 40)
+	for _, want := range []string{"1-3", "panel", "Ports", "Commands"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help overlay missing %q:\n%s", want, help)
 		}
 	}
-	if !found {
-		t.Fatal("no d binding registered")
+	for _, b := range bindings {
+		if b.key == "d" {
+			t.Fatal("the d binding should be gone: ports is a panel now")
+		}
 	}
 }
 

@@ -22,18 +22,24 @@ type Model struct {
 	client *client.Client
 	sink   *sink
 
-	table   tableModel
-	logs    logsModel
-	palette paletteModel
-	system  systemModel
+	table       tableModel
+	logs        logsModel
+	palette     paletteModel
+	system      systemModel
+	statusPanel statusModel
 
 	focus   focus
 	overlay overlay
 
-	width  int
-	height int
-	tableW int
-	bodyH  int
+	width     int
+	height    int
+	sideW     int
+	bodyH     int
+	statusH   int
+	commandsH int
+	portsH    int
+	mainW     int
+	mainH     int
 
 	connected bool
 	status    string
@@ -46,14 +52,15 @@ type Model struct {
 // New builds the model. s must be the same sink Run wires to the program.
 func New(c *client.Client, s *sink) Model {
 	return Model{
-		client:  c,
-		sink:    s,
-		table:   newTable(),
-		logs:    newLogs(),
-		palette: newPalette(),
-		system:  newSystem(),
-		focus:   focusTable,
-		now:     time.Now,
+		client:      c,
+		sink:        s,
+		table:       newTable(),
+		logs:        newLogs(),
+		palette:     newPalette(),
+		system:      newSystem(),
+		statusPanel: newStatus(c.Addr()),
+		focus:       focusCommands,
+		now:         time.Now,
 	}
 }
 
@@ -82,10 +89,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.connected = true
 		m.table.SetRows([]manager.Status(msg))
+		m.statusPanel.SetRows([]manager.Status(msg))
+		m.statusPanel.SetConnected(true)
 		return m, m.syncStream()
 
 	case statusErrMsg:
 		m.connected = false
+		m.statusPanel.SetConnected(false)
 		m.setStatus(msg.err.Error())
 		return m, nil
 
@@ -115,6 +125,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case systemMsg:
 		m.system.SetSnapshot(probe.Snapshot(msg))
+		m.statusPanel.SetSnapshot(probe.Snapshot(msg))
 		return m, nil
 
 	case systemErrMsg:
@@ -137,91 +148,105 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := k.String()
 
-	// Help swallows every key but its own dismissal; Ctrl-C always quits.
+	if s == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	// Help swallows every key but its own dismissal.
 	if m.overlay == overlayHelp {
 		switch s {
-		case "ctrl+c":
-			return m, tea.Quit
 		case "?", "esc", "q":
 			m.overlay = overlayNone
 		}
 		return m, nil
 	}
-	if m.overlay == overlayPorts {
-		switch s {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "d", "esc", "q":
-			m.overlay = overlayNone
-			return m, nil
-		case "?":
-			m.overlay = overlayHelp
-			return m, nil
-		}
+	if m.overlay == overlayPalette {
+		return m.handlePaletteKey(k)
+	}
+
+	// Keys the filter input must swallow before anything else sees them.
+	if m.logs.FilterEditing() {
 		var cmd tea.Cmd
-		m.system, cmd = m.system.Update(k)
+		m.logs, cmd = m.logs.Update(k)
 		return m, cmd
 	}
-	if s == "ctrl+c" {
-		return m, tea.Quit
-	}
 
-	switch m.focus {
-	case focusPalette:
-		return m.handlePaletteKey(k)
-	case focusLogs:
-		return m.handleLogKey(k)
-	default:
-		return m.handleTableKey(k)
-	}
-}
-
-func (m Model) handleTableKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
+	switch s {
 	case "q":
 		return m, tea.Quit
 	case "?":
 		m.overlay = overlayHelp
 		return m, nil
-	case "d":
-		m.overlay = overlayPorts
-		return m, nil
+	case "1":
+		return m.focusPanel(focusStatus)
+	case "2":
+		return m.focusPanel(focusCommands)
+	case "3":
+		return m.focusPanel(focusPorts)
 	case "tab":
-		if m.logPaneVisible() {
-			m.focus = focusLogs
-		}
-		return m, nil
+		return m.focusPanel(m.focus.next())
+	case "shift+tab":
+		return m.focusPanel(m.focus.prev())
 	case "p":
 		m.palette.Open(m.table.rows)
-		m.focus = focusPalette
+		m.overlay = overlayPalette
 		return m, textinput.Blink
-	case "s", "S", "r":
-		return m.runAction(k.String())
-	case "f":
+
+	// The main pane scrolls from any panel, so j/k always belong to the
+	// focused panel instead of being shared.
+	case "ctrl+d", "ctrl+u", "f", "/":
 		var cmd tea.Cmd
 		m.logs, cmd = m.logs.Update(k)
 		return m, cmd
-	case "/":
-		if !m.logPaneVisible() {
-			return m, nil
+	case "esc":
+		// Esc has one job now: drop the log filter. Panels are switched by
+		// number, so it has nothing else to undo.
+		if m.logs.Query() != "" {
+			var cmd tea.Cmd
+			m.logs, cmd = m.logs.Update(k)
+			return m, cmd
 		}
-		m.focus = focusLogs
-		var cmd tea.Cmd
-		m.logs, cmd = m.logs.Update(k)
-		return m, cmd
+		return m, nil
+
+	case "s", "S", "r":
+		return m.runAction(s)
 	}
 
-	before, _ := m.table.Selected()
-	var cmd tea.Cmd
-	m.table, cmd = m.table.Update(k)
-	if after, _ := m.table.Selected(); after.Name != before.Name {
-		return m, tea.Batch(cmd, m.syncStream())
-	}
-	return m, cmd
+	return m.handlePanelKey(k)
 }
 
-// runAction fires one lifecycle verb for the selected command.
+// focusPanel moves focus and resyncs whatever the main pane now shows.
+func (m Model) focusPanel(f focus) (tea.Model, tea.Cmd) {
+	m.focus = f
+	return m, nil
+}
+
+// handlePanelKey routes navigation to whichever panel has focus.
+func (m Model) handlePanelKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.focus {
+	case focusPorts:
+		var cmd tea.Cmd
+		m.system, cmd = m.system.Update(k)
+		return m, cmd
+	case focusCommands:
+		before, _ := m.table.Selected()
+		var cmd tea.Cmd
+		m.table, cmd = m.table.Update(k)
+		if after, _ := m.table.Selected(); after.Name != before.Name {
+			return m, tea.Batch(cmd, m.syncStream())
+		}
+		return m, cmd
+	}
+	return m, nil // the status panel has nothing to navigate
+}
+
+// runAction fires one lifecycle verb, but only from the Commands panel: a
+// keystroke that acts on something you cannot see is worse than an inert one.
 func (m Model) runAction(key string) (tea.Model, tea.Cmd) {
+	if m.focus != focusCommands {
+		m.setStatus("press 2 for Commands first — " + key + " acts on the selected command")
+		return m, nil
+	}
 	sel, ok := m.table.Selected()
 	if !ok {
 		return m, nil
@@ -234,47 +259,20 @@ func (m Model) runAction(key string) (tea.Model, tea.Cmd) {
 	return m, doAction(m.client, verb, sel.Name)
 }
 
-func (m Model) handleLogKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if !m.logs.FilterEditing() {
-		switch k.String() {
-		case "q":
-			return m, tea.Quit
-		case "?":
-			m.overlay = overlayHelp
-			return m, nil
-		case "d":
-			m.overlay = overlayPorts
-			return m, nil
-		case "tab":
-			m.focus = focusTable
-			return m, nil
-		case "esc":
-			// Esc wears two hats: clear the filter if there is one, else
-			// hand focus back to the table.
-			if m.logs.Query() == "" {
-				m.focus = focusTable
-				return m, nil
-			}
-		}
-	}
-	var cmd tea.Cmd
-	m.logs, cmd = m.logs.Update(k)
-	return m, cmd
-}
-
 func (m Model) handlePaletteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
 		m.palette.Close()
-		m.focus = focusTable
+		m.overlay = overlayNone
 		return m, nil
 	case "enter":
 		sel, ok := m.palette.Highlighted()
 		m.palette.Close()
-		m.focus = focusTable
+		m.overlay = overlayNone
 		if !ok {
 			return m, nil
 		}
+		m.focus = focusCommands
 		m.table.SelectName(sel.Name)
 		cmds := []tea.Cmd{m.syncStream()}
 		if sel.State != manager.Running && sel.State != manager.Starting {
@@ -285,6 +283,101 @@ func (m Model) handlePaletteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.palette, cmd = m.palette.Update(k)
 	return m, cmd
+}
+
+// Panel geometry. Status and Ports are fixed; Commands takes what is left.
+const (
+	sideWidth    = 34
+	minSideW     = 26
+	statusPanelH = 4
+	portsPanelH  = 8
+	stackedMinW  = 90 // below this the columns become rows
+)
+
+// stacked reports whether the terminal is too narrow for two columns.
+func (m Model) stacked() bool { return m.width < stackedMinW }
+
+func (m *Model) layout() {
+	m.bodyH = m.height - 2 // header and key bar
+	if m.bodyH < 6 {
+		m.bodyH = 6
+	}
+
+	// A little wider on a big terminal, still a sidebar.
+	m.sideW = maxInt(sideWidth, m.width*32/100)
+	if m.sideW > 52 {
+		m.sideW = 52
+	}
+	if m.stacked() {
+		m.sideW = m.width
+	}
+	if m.sideW > m.width {
+		m.sideW = m.width
+	}
+	if m.sideW < minSideW {
+		m.sideW = minSideW
+	}
+
+	m.statusH, m.portsH = statusPanelH, portsPanelH
+	if m.stacked() {
+		// One column: the focused panel keeps its rows, the others collapse
+		// to a title bar, and the main pane takes the bottom half.
+		m.statusH, m.portsH = 1, 1
+		if m.focus == focusStatus {
+			m.statusH = statusPanelH
+		}
+		if m.focus == focusPorts {
+			m.portsH = portsPanelH
+		}
+		m.commandsH = 3
+		if m.focus == focusCommands {
+			m.commandsH = maxInt(m.bodyH/2, 4)
+		}
+		m.mainW = m.width
+		m.mainH = maxInt(m.bodyH-m.statusH-m.commandsH-m.portsH, 3)
+	} else {
+		m.commandsH = m.bodyH - m.statusH - m.portsH
+		if m.commandsH < 4 {
+			// A short terminal gives up the Ports panel before the list.
+			m.portsH = maxInt(m.bodyH-m.statusH-4, 3)
+			m.commandsH = maxInt(m.bodyH-m.statusH-m.portsH, 3)
+		}
+		m.mainW, m.mainH = m.width-m.sideW, m.bodyH
+	}
+
+	m.table.SetLayout(tableLayout{
+		Width:   m.sideW - 2, // the panel border eats two columns
+		Height:  m.commandsH - 2,
+		Compact: m.sideW < 32,
+		Wide:    m.sideW >= 46,
+	})
+	m.system.SetSize(m.sideW-2, m.portsH-2)
+	m.logs.SetSize(maxInt(m.mainW-2, 1), maxInt(m.mainH-1, 2))
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (m Model) header() string {
+	left := " lazycomd"
+	right := m.headerRight()
+	room := m.width - len([]rune(left)) - len([]rune(right)) - 1
+	if room < 1 {
+		return styleHeader.Render(truncate(left, m.width))
+	}
+	return styleHeader.Render(left) + strings.Repeat(" ", room) + styleDim.Render(right) + " "
+}
+
+// headerRight is the daemon in one phrase.
+func (m Model) headerRight() string {
+	if !m.connected {
+		return "daemon not running — retrying"
+	}
+	return m.statusPanel.Summary()
 }
 
 // syncStream points the single SSE stream at the selected command and returns
@@ -304,60 +397,9 @@ func (m *Model) syncStream() tea.Cmd {
 	return fetchTail(m.client, sel.Name)
 }
 
-// logPaneVisible is false on a terminal too narrow to split.
-func (m Model) logPaneVisible() bool { return m.width >= 60 }
-
 func (m *Model) setStatus(s string) {
 	m.status = s
 	m.statusAt = m.now()
-}
-
-func (m *Model) layout() {
-	m.bodyH = m.height - 2 // header and bottom line
-	if m.bodyH < 3 {
-		m.bodyH = 3
-	}
-
-	// Too narrow to split: the table takes everything.
-	if m.width < 60 {
-		m.tableW = m.width
-		m.table.SetLayout(tableLayout{Width: m.tableW, Height: m.bodyH, Compact: true})
-		m.logs.SetSize(1, m.bodyH)
-		if m.focus == focusLogs {
-			m.focus = focusTable
-		}
-		m.logs.CancelFilterEdit()
-		return
-	}
-
-	m.tableW = m.width * 40 / 100
-	if m.tableW < 32 {
-		m.tableW = 32
-	}
-	if m.tableW > m.width-20 {
-		m.tableW = m.width - 20
-	}
-	m.system.SetSize(m.width, m.bodyH)
-	m.table.SetLayout(tableLayout{
-		Width:   m.tableW,
-		Height:  m.bodyH,
-		Compact: m.width < 80,
-		Wide:    m.width >= 110,
-	})
-	m.logs.SetSize(m.width-m.tableW-1, m.bodyH)
-}
-
-func (m Model) header() string {
-	if !m.connected {
-		return styleWarn.Render(truncate(" lazycomd — daemon not running, retrying (start with: lazycomd serve)", m.width))
-	}
-	running := 0
-	for _, r := range m.table.rows {
-		if r.State == manager.Running {
-			running++
-		}
-	}
-	return styleHeader.Render(truncate(fmt.Sprintf(" lazycomd — %d commands · %d running", len(m.table.rows), running), m.width))
 }
 
 // bottom shows a transient status line, then falls back to the key bar.
@@ -372,19 +414,89 @@ func (m Model) View() string {
 	if m.overlay == overlayHelp {
 		return strings.Join([]string{m.header(), helpOverlay(m.width, m.bodyH), m.bottom()}, "\n")
 	}
-	if m.overlay == overlayPorts {
-		return strings.Join([]string{m.header(), m.system.View(), m.bottom()}, "\n")
+
+	side := m.sidebar()
+	main := m.mainPane()
+	if m.stacked() {
+		return strings.Join([]string{m.header(), side, main, m.bottom()}, "\n")
+	}
+	return strings.Join([]string{
+		m.header(),
+		lipgloss.JoinHorizontal(lipgloss.Top, side, main),
+		m.bottom(),
+	}, "\n")
+}
+
+// sidebar stacks the three panels, or shows the palette in their place.
+func (m Model) sidebar() string {
+	if m.overlay == overlayPalette {
+		return panelView(panelSpec{
+			Title:   "Palette",
+			Width:   m.sideW,
+			Height:  m.bodyH,
+			Focused: true,
+			Rows:    strings.Split(m.palette.View(m.sideW-2, m.bodyH-2), "\n"),
+		})
 	}
 
-	left := m.table.View()
-	if m.focus == focusPalette {
-		left = m.palette.View(m.tableW, m.bodyH)
+	status := panelView(panelSpec{
+		Title:    "Status",
+		Number:   1,
+		Width:    m.sideW,
+		Height:   m.statusH,
+		Focused:  m.focus == focusStatus,
+		Subtitle: collapsedSubtitle(m.stacked() && m.focus != focusStatus, m.statusPanel.Summary()),
+		Rows:     m.statusPanel.PanelRows(),
+	})
+	commands := panelView(panelSpec{
+		Title:   "Commands",
+		Number:  2,
+		Width:   m.sideW,
+		Height:  m.commandsH,
+		Focused: m.focus == focusCommands,
+		Rows:    strings.Split(m.table.View(), "\n"),
+	})
+	ports := panelView(panelSpec{
+		Title:    "Ports",
+		Number:   3,
+		Width:    m.sideW,
+		Height:   m.portsH,
+		Focused:  m.focus == focusPorts,
+		Subtitle: m.system.Subtitle(),
+		Rows:     m.system.PanelRows(),
+	})
+	return strings.Join([]string{status, commands, ports}, "\n")
+}
+
+// collapsedSubtitle only shows a summary when the panel itself is collapsed.
+func collapsedSubtitle(collapsed bool, s string) string {
+	if collapsed {
+		return s
 	}
-	if !m.logPaneVisible() {
-		return strings.Join([]string{m.header(), left, m.bottom()}, "\n")
+	return ""
+}
+
+// mainPane follows focus: logs for Commands, detail for the others.
+func (m Model) mainPane() string {
+	title, rows := m.logs.Title(), []string(nil)
+	switch m.focus {
+	case focusStatus:
+		title, rows = "daemon", m.statusPanel.Detail()
+	case focusPorts:
+		title, rows = "port detail", m.system.Detail()
+	default:
+		title := m.logs.Title()
+		if sel, ok := m.table.Selected(); ok && sel.PID > 0 {
+			title = fmt.Sprintf("%s · pid %d", title, sel.PID)
+		}
+		return panelView(panelSpec{
+			Title:  title,
+			Width:  m.mainW,
+			Height: m.mainH,
+			Rows:   strings.Split(m.logs.Body(), "\n"),
+		})
 	}
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, styleDim.Render("│"), m.logs.View())
-	return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
+	return panelView(panelSpec{Title: title, Width: m.mainW, Height: m.mainH, Rows: rows})
 }
 
 // Run starts the TUI and blocks until the user quits.

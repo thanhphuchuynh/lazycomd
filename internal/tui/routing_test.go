@@ -3,11 +3,13 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/tphuc/lazycomd/internal/config"
 	"github.com/tphuc/lazycomd/internal/manager"
+	"github.com/tphuc/lazycomd/internal/probe"
 )
 
 func modelWithRows(t *testing.T, names ...string) Model {
@@ -26,18 +28,70 @@ func modelWithRows(t *testing.T, names ...string) Model {
 	return m
 }
 
-func TestTabSwitchesFocus(t *testing.T) {
+func TestNumberKeysAndTabMoveBetweenPanels(t *testing.T) {
 	m := modelWithRows(t, "a")
-	if m.focus != focusTable {
-		t.Fatal("should start on the table")
+	if m.focus != focusCommands {
+		t.Fatal("should open on the commands panel")
+	}
+
+	for _, tc := range []struct {
+		key  string
+		want focus
+	}{{"1", focusStatus}, {"3", focusPorts}, {"2", focusCommands}} {
+		m, _ = step(t, m, key(tc.key))
+		if m.focus != tc.want {
+			t.Fatalf("%s focused %v, want %v", tc.key, m.focus, tc.want)
+		}
+	}
+
+	// tab wraps forward, shift+tab back.
+	m, _ = step(t, m, key("tab"))
+	if m.focus != focusPorts {
+		t.Fatalf("tab from Commands went to %v, want Ports", m.focus)
 	}
 	m, _ = step(t, m, key("tab"))
-	if m.focus != focusLogs {
-		t.Fatal("tab should focus the log pane")
+	if m.focus != focusStatus {
+		t.Fatalf("tab from Ports went to %v, want Status (wrapped)", m.focus)
 	}
-	m, _ = step(t, m, key("tab"))
-	if m.focus != focusTable {
-		t.Fatal("tab should come back to the table")
+	m, _ = step(t, m, key("shift+tab"))
+	if m.focus != focusPorts {
+		t.Fatalf("shift+tab went to %v, want Ports", m.focus)
+	}
+}
+
+func TestMainPaneFollowsFocus(t *testing.T) {
+	m := modelWithRows(t, "web")
+	m, _ = step(t, m, logTailMsg{name: "web", lines: []string{"hello from web"}})
+
+	if !strings.Contains(m.View(), "hello from web") {
+		t.Fatalf("commands focus should show logs:\n%s", m.View())
+	}
+
+	m, _ = step(t, m, key("1"))
+	if v := m.View(); !strings.Contains(v, "reachable") {
+		t.Fatalf("status focus should show daemon detail:\n%s", v)
+	}
+
+	m, _ = step(t, m, systemMsg(probe.Snapshot{
+		Ports:     []probe.Port{{Addr: "*", Port: 5432, PID: 1183, Process: "postgres"}},
+		SampledAt: map[string]time.Time{"ports": time.Now()},
+	}))
+	m, _ = step(t, m, key("3"))
+	if v := m.View(); !strings.Contains(v, "port 5432") || !strings.Contains(v, "1183") {
+		t.Fatalf("ports focus should show port detail:\n%s", v)
+	}
+}
+
+func TestLifecycleKeysAreInertOutsideCommands(t *testing.T) {
+	m := modelWithRows(t, "tick")
+	m, _ = step(t, m, key("3")) // Ports has focus
+
+	m2, cmd := step(t, m, key("s"))
+	if cmd != nil {
+		t.Fatal("s fired an action from the ports panel")
+	}
+	if !strings.Contains(m2.bottom(), "press 2") {
+		t.Fatalf("status line = %q, want a hint about panel 2", m2.bottom())
 	}
 }
 
@@ -114,8 +168,8 @@ func TestPaletteOpensStartsAndSelects(t *testing.T) {
 	m := modelWithRows(t, "proxy", "app:api")
 
 	m, _ = step(t, m, key("p"))
-	if m.focus != focusPalette {
-		t.Fatal("p should focus the palette")
+	if m.overlay != overlayPalette {
+		t.Fatal("p should open the palette")
 	}
 	for _, r := range "api" {
 		m, _ = step(t, m, key(string(r)))
@@ -125,8 +179,8 @@ func TestPaletteOpensStartsAndSelects(t *testing.T) {
 	}
 
 	m, cmd := step(t, m, key("enter"))
-	if m.focus != focusTable {
-		t.Fatal("enter should return focus to the table")
+	if m.overlay != overlayNone || m.focus != focusCommands {
+		t.Fatal("enter should close the palette and focus Commands")
 	}
 	if got, _ := m.table.Selected(); got.Name != "app:api" {
 		t.Fatalf("selected = %q, want app:api", got.Name)
@@ -157,45 +211,51 @@ func TestPaletteEscCloses(t *testing.T) {
 	m := modelWithRows(t, "a")
 	m, _ = step(t, m, key("p"))
 	m, _ = step(t, m, key("esc"))
-	if m.focus != focusTable || m.overlay != overlayNone {
+	if m.overlay != overlayNone {
 		t.Fatal("esc should close the palette")
 	}
 }
 
-func TestEscInLogPaneClearsFilterThenReturnsFocus(t *testing.T) {
+func TestSlashFiltersTheMainPaneWithoutMovingFocus(t *testing.T) {
 	m := modelWithRows(t, "a")
 	m, _ = step(t, m, logTailMsg{name: "a", lines: []string{"one", "two"}})
-	m, _ = step(t, m, key("tab"))
 
 	m, _ = step(t, m, key("/"))
+	if !m.logs.FilterEditing() {
+		t.Fatal("/ should open the filter input")
+	}
+	if m.focus != focusCommands {
+		t.Fatal("/ should not move panel focus")
+	}
+
 	m, _ = step(t, m, key("o"))
 	m, _ = step(t, m, key("enter"))
 	if m.logs.Query() != "o" {
 		t.Fatalf("query = %q, want o", m.logs.Query())
 	}
 
-	m, _ = step(t, m, key("esc")) // clears the filter, keeps focus
+	m, _ = step(t, m, key("esc"))
 	if m.logs.Query() != "" {
 		t.Fatalf("query = %q, want cleared", m.logs.Query())
 	}
-	if m.focus != focusLogs {
-		t.Fatal("focus should stay on the log pane while a filter was set")
-	}
-
-	m, _ = step(t, m, key("esc")) // no filter left: back to the table
-	if m.focus != focusTable {
-		t.Fatal("esc with no filter should return to the table")
-	}
 }
 
-func TestSlashFromTheTableFocusesTheLogFilter(t *testing.T) {
+func TestScrollKeysReachTheMainPaneFromAnyPanel(t *testing.T) {
 	m := modelWithRows(t, "a")
-	m, _ = step(t, m, key("/"))
-	if m.focus != focusLogs {
-		t.Fatal("/ should focus the log pane")
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = "line " + string(rune('a'+i%26))
 	}
-	if !m.logs.FilterEditing() {
-		t.Fatal("/ should open the filter input")
+	m, _ = step(t, m, logTailMsg{name: "a", lines: lines})
+
+	m, _ = step(t, m, key("3")) // focus Ports, then scroll the logs anyway
+	m, _ = step(t, m, key("ctrl+u"))
+	if m.logs.Following() {
+		t.Fatal("ctrl+u should scroll the main pane and stop following")
+	}
+	m, _ = step(t, m, key("f"))
+	if !m.logs.Following() {
+		t.Fatal("f should restore follow from any panel")
 	}
 }
 
@@ -222,25 +282,25 @@ func TestSelectionMoveFetchesTheNewTail(t *testing.T) {
 	}
 }
 
-func TestNarrowTerminalHidesTheLogPane(t *testing.T) {
+func TestNarrowTerminalStacksInsteadOfHiding(t *testing.T) {
 	m := modelWithRows(t, "a")
-	m, _ = step(t, m, key("tab"))
-	if m.focus != focusLogs {
-		t.Fatal("precondition: focus on the log pane")
-	}
-	m, _ = step(t, m, key("/"))
+	m, _ = step(t, m, logTailMsg{name: "a", lines: []string{"still visible"}})
 
-	m, _ = step(t, m, tea.WindowSizeMsg{Width: 50, Height: 20})
-	if m.logPaneVisible() {
-		t.Fatal("log pane should be hidden below 60 columns")
+	m, _ = step(t, m, tea.WindowSizeMsg{Width: 70, Height: 24})
+	if !m.stacked() {
+		t.Fatal("70 columns should stack the panels above the main pane")
 	}
-	if m.focus != focusTable {
-		t.Fatal("focus should fall back to the table")
+
+	view := m.View()
+	// Everything stays reachable: panels on top, logs underneath.
+	for _, want := range []string{"2 Commands", "3 Ports", "still visible"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("stacked view missing %q:\n%s", want, view)
+		}
 	}
-	if m.logs.FilterEditing() {
-		t.Fatal("the filter input should close")
-	}
-	if strings.Contains(m.View(), "│") {
-		t.Fatalf("the pane separator should be gone:\n%s", m.View())
+	for i, line := range strings.Split(view, "\n") {
+		if w := runeWidth(line); w > 70 {
+			t.Fatalf("line %d is %d wide at 70 columns: %q", i, w, line)
+		}
 	}
 }
