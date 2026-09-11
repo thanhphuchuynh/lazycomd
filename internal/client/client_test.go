@@ -13,6 +13,7 @@ import (
 
 	"github.com/tphuc/lazycomd/internal/api"
 	"github.com/tphuc/lazycomd/internal/config"
+	"github.com/tphuc/lazycomd/internal/configw"
 	"github.com/tphuc/lazycomd/internal/manager"
 )
 
@@ -239,5 +240,118 @@ func TestClientSystem(t *testing.T) {
 	}
 	if snap.Vitals == nil || snap.Health == nil {
 		t.Fatalf("snapshot sections missing: %+v", snap)
+	}
+}
+
+// writableDaemon serves a real config file that writes land in.
+func writableDaemon(t *testing.T, path string) *Client {
+	t.Helper()
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := manager.New(cfg, t.TempDir())
+	m.Grace = 500 * time.Millisecond
+	t.Cleanup(m.Shutdown)
+
+	s := api.New(api.Options{
+		Manager:    m,
+		Reload:     func() (*config.Config, error) { return config.Load(path) },
+		ConfigPath: path,
+		Writers:    configw.NewRegistry(),
+	})
+
+	dir, err := os.MkdirTemp("/tmp", "lzc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "s.sock")
+
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: s.Handler()}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+
+	c, err := New("unix://"+sock, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestClientWriteRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("commands:\n  web:\n    cmd: [\"sleep\", \"30\"]\n    cwd: /tmp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := writableDaemon(t, path)
+
+	st, err := c.Create("extra", config.Command{Cmd: []string{"sleep", "30"}, Cwd: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Name != "extra" {
+		t.Fatalf("status = %+v", st)
+	}
+
+	got, err := c.CommandConfig("extra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Cmd) != 2 || got.Cwd != "/tmp" {
+		t.Fatalf("config = %+v", got)
+	}
+
+	got.Cwd = "/srv"
+	if _, err := c.Update("extra", got); err != nil {
+		t.Fatal(err)
+	}
+	again, err := c.CommandConfig("extra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Cwd != "/srv" {
+		t.Fatalf("cwd = %q, want /srv", again.Cwd)
+	}
+
+	if err := c.Delete("extra"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CommandConfig("extra"); err == nil {
+		t.Fatal("the command survived the delete")
+	}
+}
+
+func TestClientCreateDuplicateIsAnAPIError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("commands:\n  web:\n    cmd: [\"sleep\", \"30\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := writableDaemon(t, path)
+
+	_, err := c.Create("web", config.Command{Cmd: []string{"x"}})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != 409 {
+		t.Fatalf("err = %v, want a 409 APIError", err)
+	}
+}
+
+func TestClientProjects(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("commands: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := writableDaemon(t, path)
+
+	got, err := c.Projects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("Projects = nil, want an empty map")
 	}
 }
