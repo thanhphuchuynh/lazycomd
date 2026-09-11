@@ -13,11 +13,11 @@ func TestRenderBlockMinimal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Flow style, and the encoder only quotes what would otherwise parse as
+	// something other than a string.
 	want := []string{
 		"  web:",
-		"    cmd:",
-		"      - npm",
-		"      - start",
+		"    cmd: [npm, start]",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("renderBlock =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

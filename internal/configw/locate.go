@@ -1,6 +1,10 @@
 package configw
 
-import "gopkg.in/yaml.v3"
+import (
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // commandsPair returns the top-level "commands" key and its mapping value.
 func commandsPair(doc *yaml.Node) (*yaml.Node, *yaml.Node, bool) {
@@ -62,6 +66,25 @@ func commandsEnd(doc *yaml.Node) (int, int, bool) {
 	return maxLine(last), cmds.Content[0].Column - 1, true
 }
 
+// headStart walks up from a key over the comment block that belongs to it, so
+// deleting a command takes its own comment along. yaml.v3 attaches a comment
+// to the key below it, which is exactly the ownership a reader assumes.
+func headStart(lines []string, key *yaml.Node) int {
+	start := key.Line
+	if key.HeadComment == "" {
+		return start
+	}
+	want := strings.Count(key.HeadComment, "\n") + 1
+	for i := 0; i < want && start >= 2; i++ {
+		above := strings.TrimSpace(lines[start-2])
+		if !strings.HasPrefix(above, "#") {
+			break
+		}
+		start--
+	}
+	return start
+}
+
 // maxLine is the deepest line any part of a node reaches.
 //
 // ponytail: a multi-line block scalar reports its start line, so a command
@@ -75,4 +98,18 @@ func maxLine(n *yaml.Node) int {
 		}
 	}
 	return line
+}
+
+// commandKey returns one command's key and value nodes.
+func commandKey(doc *yaml.Node, name string) (*yaml.Node, *yaml.Node, bool) {
+	cmds, ok := commandsNode(doc)
+	if !ok {
+		return nil, nil, false
+	}
+	for i := 0; i+1 < len(cmds.Content); i += 2 {
+		if cmds.Content[i].Value == name {
+			return cmds.Content[i], cmds.Content[i+1], true
+		}
+	}
+	return nil, nil, false
 }

@@ -108,6 +108,9 @@ func (f *File) Delete(name string) error {
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
 		}
+		if key, _, found := commandKey(doc, name); found {
+			start = headStart(lines, key)
+		}
 		return replaceRange(lines, start, end, nil), nil
 	})
 }

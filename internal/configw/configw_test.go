@@ -137,6 +137,11 @@ func TestDeleteKeepsTheNextCommandsComment(t *testing.T) {
 	if !strings.Contains(body, "# a chatty one") {
 		t.Fatalf("the next command's comment went with it:\n%s", body)
 	}
+	// web's own comment belongs to web, so it goes too — otherwise it would
+	// end up labelling whatever command lands there next.
+	if strings.Contains(body, "# the http server, do not rename") {
+		t.Fatalf("web's own comment was left behind to mislabel its neighbour:\n%s", body)
+	}
 	if !strings.Contains(body, "noisy:") {
 		t.Fatalf("noisy went with it:\n%s", body)
 	}
@@ -256,5 +261,28 @@ func TestCreateIntoAnEmptyFlowMapping(t *testing.T) {
 	}
 	if strings.Contains(string(data), "{}") {
 		t.Fatalf("the empty flow mapping survived alongside the block:\n%s", data)
+	}
+}
+
+func TestRenderedCommandKeepsFlowStyleAndNoSizeDefault(t *testing.T) {
+	p := writeFixture(t, withComments, 0o600)
+	f := &File{path: p}
+
+	// A spec read back from a running daemon carries the size default.
+	if err := f.Update("web", config.Command{
+		Cmd:  []string{"python3", "-m", "http.server", "8099"},
+		Cwd:  "/srv",
+		Size: config.DefaultBufSize,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(p)
+	body := string(data)
+	if strings.Contains(body, "size:") {
+		t.Fatalf("the buffer-size default was persisted:\n%s", body)
+	}
+	if !strings.Contains(body, `cmd: [python3, -m, http.server, "8099"]`) {
+		t.Fatalf("cmd was not written in flow style:\n%s", body)
 	}
 }
