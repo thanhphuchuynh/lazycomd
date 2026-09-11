@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,10 +15,11 @@ type logsModel struct {
 	name   string
 	lines  []string
 	follow bool
+	filter filterState
 }
 
 func newLogs() logsModel {
-	return logsModel{vp: viewport.New(0, 0), follow: true}
+	return logsModel{vp: viewport.New(0, 0), follow: true, filter: newFilter()}
 }
 
 func (l *logsModel) SetSize(w, h int) {
@@ -38,6 +40,10 @@ func (l *logsModel) Reset(name string, lines []string) {
 	l.lines = append([]string(nil), lines...)
 	l.capLines()
 	l.follow = true
+	l.filter.query = ""
+	l.filter.editing = false
+	l.filter.input.Reset()
+	l.filter.input.Blur()
 	l.refresh()
 	l.vp.GotoBottom()
 }
@@ -59,9 +65,28 @@ func (l *logsModel) capLines() {
 	l.lines = append([]string(nil), l.lines[len(l.lines)-maxLogLines:]...)
 }
 
-// visible is the seam the filter hooks into; without a filter it is every
-// line.
-func (l logsModel) visible() []string { return l.lines }
+// visible is every line, or only the matching lines while a filter is set.
+func (l logsModel) visible() []string {
+	if l.filter.query == "" {
+		return l.lines
+	}
+	out := make([]string, 0, len(l.lines))
+	for _, line := range l.lines {
+		if smartContains(line, l.filter.query) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func (l logsModel) FilterEditing() bool { return l.filter.editing }
+func (l logsModel) Query() string       { return l.filter.query }
+
+// CancelFilterEdit closes the input without touching the applied query.
+func (l *logsModel) CancelFilterEdit() {
+	l.filter.editing = false
+	l.filter.input.Blur()
+}
 
 // refresh rebuilds the viewport content, truncating each line to the pane
 // width.
@@ -70,6 +95,7 @@ func (l logsModel) visible() []string { return l.lines }
 // scroll math stay trivial. Wrap when reading long JSON lines actually hurts.
 func (l *logsModel) refresh() {
 	src := l.visible()
+	l.filter.matches = len(src)
 	out := make([]string, 0, len(src))
 	for _, line := range src {
 		out = append(out, truncate(line, l.vp.Width))
@@ -87,7 +113,40 @@ func (l logsModel) Update(msg tea.Msg) (logsModel, tea.Cmd) {
 	if !ok {
 		return l, nil
 	}
+	if l.filter.editing {
+		switch k.String() {
+		case "enter":
+			l.filter.query = l.filter.input.Value()
+			l.filter.editing = false
+			l.filter.input.Blur()
+			l.refresh()
+			if l.follow {
+				l.vp.GotoBottom()
+			}
+		case "esc":
+			l.filter.editing = false
+			l.filter.input.Blur()
+			l.filter.query = ""
+			l.refresh()
+		default:
+			var cmd tea.Cmd
+			l.filter.input, cmd = l.filter.input.Update(msg)
+			return l, cmd
+		}
+		return l, nil
+	}
 	switch k.String() {
+	case "/":
+		l.filter.editing = true
+		l.filter.input.Reset()
+		l.filter.input.Focus()
+		return l, textinput.Blink
+	case "esc":
+		if l.filter.query != "" {
+			l.filter.query = ""
+			l.refresh()
+		}
+		return l, nil
 	case "f":
 		l.follow = !l.follow
 		if l.follow {
@@ -119,6 +178,9 @@ func (l logsModel) Title() string {
 	if l.name == "" {
 		return "no command selected"
 	}
+	if l.filter.query != "" {
+		return fmt.Sprintf("%s — filter %q · %d of %d", l.name, l.filter.query, l.filter.matches, len(l.lines))
+	}
 	if l.follow {
 		return l.name + " — following"
 	}
@@ -127,5 +189,9 @@ func (l logsModel) Title() string {
 
 func (l logsModel) View() string {
 	title := styleHeader.Render(truncate(l.Title(), l.vp.Width))
-	return lipgloss.JoinVertical(lipgloss.Left, title, l.vp.View())
+	body := lipgloss.JoinVertical(lipgloss.Left, title, l.vp.View())
+	if l.filter.editing {
+		return lipgloss.JoinVertical(lipgloss.Left, body, l.filter.input.View())
+	}
+	return body
 }
