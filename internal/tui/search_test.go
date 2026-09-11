@@ -12,122 +12,189 @@ import (
 	"github.com/tphuc/lazycomd/internal/probe"
 )
 
-func typeIntoPorts(s systemModel, text string) systemModel {
-	for _, r := range text {
+func testSearch(query string) searchModel {
+	s := newSearch()
+	s.Open(
+		[]manager.Status{
+			{Name: "web", State: manager.Running, PID: 4242},
+			{Name: "worker", State: manager.Stopped},
+		},
+		[]probe.Port{
+			{Port: 8099, Addr: "127.0.0.1", PID: 4242, Process: "Python", Command: "web"},
+			{Port: 5432, Addr: "*", PID: 1183, Process: "postgres"},
+		},
+		"web",
+		[]string{"12:03:11 GET / 200", "12:03:12 GET /favicon 404", "12:03:13 done"},
+	)
+	for _, r := range query {
 		s, _ = s.Update(key(string(r)))
 	}
 	return s
 }
 
-func TestPortFilterKeepsOnlyMatchingRows(t *testing.T) {
-	now := time.Now()
-	s := newTestSystem(t, snapshotFixture(now), now)
+func TestSearchRanksEverySource(t *testing.T) {
+	s := testSearch("")
+	kinds := map[searchKind]int{}
+	for _, m := range s.matches {
+		kinds[m.kind]++
+	}
+	for _, k := range []searchKind{kindCommand, kindPort, kindLog} {
+		if kinds[k] == 0 {
+			t.Fatalf("kind %v missing from an empty query: %+v", k, s.matches)
+		}
+	}
 
-	s, _ = s.Update(key("/"))
-	if !s.FilterEditing() {
-		t.Fatal("slash should open the port filter")
-	}
-	s = typeIntoPorts(s, "postgres")
-	s, _ = s.Update(key("enter"))
-
-	if got := s.Query(); got != "postgres" {
-		t.Fatalf("query = %q, want postgres", got)
-	}
-	rows := strings.Join(s.PanelRows(), "\n")
-	if !strings.Contains(rows, "5432") {
-		t.Fatalf("the matching port is missing:\n%s", rows)
-	}
-	if strings.Contains(rows, "3000") || strings.Contains(rows, "7777") {
-		t.Fatalf("non-matching ports survived the filter:\n%s", rows)
-	}
-	if sub := s.Subtitle(); !strings.Contains(sub, "1 of 3") {
-		t.Fatalf("subtitle = %q, want a 1 of 3 count", sub)
-	}
-}
-
-func TestPortFilterMatchesNumberAndOwner(t *testing.T) {
-	now := time.Now()
-	for _, tc := range []struct{ query, want string }{
-		{"5432", "postgres"},
-		{"daemon", "lazycomd"},
-		{"127.0.0.1", "node"},
-	} {
-		s := newTestSystem(t, snapshotFixture(now), now)
-		s, _ = s.Update(key("/"))
-		s = typeIntoPorts(s, tc.query)
-		s, _ = s.Update(key("enter"))
-		if rows := strings.Join(s.PanelRows(), "\n"); !strings.Contains(rows, tc.want) {
-			t.Fatalf("query %q did not match %s:\n%s", tc.query, tc.want, rows)
+	view := s.View(60, 12)
+	for _, want := range []string{"cmd", "web", "port", "8099", "log"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("search view missing %q:\n%s", want, view)
 		}
 	}
 }
 
-func TestPortFilterSelectionAndEscape(t *testing.T) {
-	now := time.Now()
-	s := newTestSystem(t, snapshotFixture(now), now)
-
-	s, _ = s.Update(key("/"))
-	s = typeIntoPorts(s, "5432")
-	s, _ = s.Update(key("enter"))
-
-	// The cursor indexes the visible list, so detail must follow the filter.
-	sel, ok := s.Selected()
-	if !ok || sel.Port != 5432 {
-		t.Fatalf("selected = %v (%v), want port 5432", sel, ok)
-	}
-	if d := strings.Join(s.Detail(), "\n"); !strings.Contains(d, "port 5432") {
-		t.Fatalf("detail follows the wrong row:\n%s", d)
-	}
-
-	s, _ = s.Update(key("esc"))
-	if s.Query() != "" {
-		t.Fatalf("esc left the query %q in place", s.Query())
-	}
-	if got := len(s.ports()); got != 3 {
-		t.Fatalf("ports after clearing = %d, want 3", got)
+func TestSearchMatchesAcrossKinds(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		kind  searchKind
+		want  string
+	}{
+		{"worker", kindCommand, "worker"},
+		{"5432", kindPort, "5432"},
+		{"postgres", kindPort, "5432"},
+		{"favicon", kindLog, "404"},
+	} {
+		s := testSearch(tc.query)
+		if len(s.matches) == 0 {
+			t.Fatalf("query %q matched nothing", tc.query)
+		}
+		top := s.matches[0]
+		if top.kind != tc.kind || !strings.Contains(top.label+top.detail, tc.want) {
+			t.Fatalf("query %q ranked %+v first, want a %v containing %q", tc.query, top, tc.kind, tc.want)
+		}
 	}
 }
 
-func TestPortFilterCancelKeepsThePreviousQuery(t *testing.T) {
-	now := time.Now()
-	s := newTestSystem(t, snapshotFixture(now), now)
-	s, _ = s.Update(key("/"))
-	s = typeIntoPorts(s, "5432")
-	s, _ = s.Update(key("enter"))
+func TestSearchSelectingACommandFocusesIt(t *testing.T) {
+	m := modelWithRows(t, "web", "worker")
+	m, _ = step(t, m, key("/"))
+	if m.overlay != overlaySearch {
+		t.Fatal("slash should open the search overlay")
+	}
+	for _, r := range "worker" {
+		m, _ = step(t, m, key(string(r)))
+	}
+	m, _ = step(t, m, key("enter"))
 
-	s, _ = s.Update(key("/"))
-	s = typeIntoPorts(s, "nope")
-	s, _ = s.Update(key("esc"))
-
-	if got := s.Query(); got != "" {
-		t.Fatalf("query = %q; esc while editing clears the filter", got)
+	if m.overlay != overlayNone {
+		t.Fatal("enter should close the search overlay")
+	}
+	if m.focus != focusCommands {
+		t.Fatalf("focus = %v, want Commands", m.focus)
+	}
+	if sel, _ := m.table.Selected(); sel.Name != "worker" {
+		t.Fatalf("selected %q, want worker", sel.Name)
 	}
 }
 
-func TestSlashRoutesToTheFocusedPanel(t *testing.T) {
+func TestSearchSelectingAPortFocusesPorts(t *testing.T) {
 	m := modelWithRows(t, "web")
 	m, _ = step(t, m, systemMsg(snapshotFixture(time.Now())))
 
-	// Commands focused: the log filter still owns slash.
 	m, _ = step(t, m, key("/"))
-	if !m.logs.FilterEditing() {
-		t.Fatal("slash with Commands focused should filter logs")
+	for _, r := range "5432" {
+		m, _ = step(t, m, key(string(r)))
 	}
-	m, _ = step(t, m, key("esc"))
+	m, _ = step(t, m, key("enter"))
 
-	m, _ = step(t, m, key("3"))
+	if m.focus != focusPorts {
+		t.Fatalf("focus = %v, want Ports", m.focus)
+	}
+	if sel, ok := m.system.Selected(); !ok || sel.Port != 5432 {
+		t.Fatalf("selected %v (%v), want port 5432", sel, ok)
+	}
+}
+
+func TestSearchSelectingALogOpensTheLogViewFiltered(t *testing.T) {
+	m := modelWithRows(t, "web")
+	m, _ = step(t, m, logTailMsg{name: "web", lines: []string{"boot ok", "GET /favicon 404"}})
+
+	m, _ = step(t, m, key("/"))
+	for _, r := range "favicon" {
+		m, _ = step(t, m, key(string(r)))
+	}
+	m, _ = step(t, m, key("enter"))
+
+	if m.overlay != overlayLog {
+		t.Fatalf("overlay = %v, want the full log view", m.overlay)
+	}
+	if got := m.logs.Query(); got != "favicon" {
+		t.Fatalf("log filter = %q, want favicon", got)
+	}
+}
+
+func TestLogOverlayOpensWithOAndFiltersInside(t *testing.T) {
+	m := modelWithRows(t, "web")
+	m, _ = step(t, m, logTailMsg{name: "web", lines: []string{"boot ok", "GET /favicon 404"}})
+
+	m, _ = step(t, m, key("o"))
+	if m.overlay != overlayLog {
+		t.Fatal("o should open the full log view")
+	}
+	if !strings.Contains(m.View(), "boot ok") {
+		t.Fatalf("the log view does not show the log:\n%s", m.View())
+	}
+
+	m, _ = step(t, m, key("/"))
+	for _, r := range "favicon" {
+		m, _ = step(t, m, key(string(r)))
+	}
+	m, _ = step(t, m, key("enter"))
+	if got := m.logs.Query(); got != "favicon" {
+		t.Fatalf("filter inside the log view = %q, want favicon", got)
+	}
+
+	m, _ = step(t, m, key("esc")) // clears the filter
+	m, _ = step(t, m, key("esc")) // closes the view
+	if m.overlay != overlayNone {
+		t.Fatalf("esc should close the log view, overlay = %v", m.overlay)
+	}
+}
+
+func TestThePreviewPaneHasNoFilter(t *testing.T) {
+	m := modelWithRows(t, "web")
+	// Slash belongs to the search overlay now; the preview is read-only.
 	m, _ = step(t, m, key("/"))
 	if m.logs.FilterEditing() {
-		t.Fatal("slash with Ports focused must not touch the log filter")
+		t.Fatal("slash must not start a filter on the log preview")
 	}
-	if !m.system.FilterEditing() {
-		t.Fatal("slash with Ports focused should filter ports")
+}
+
+func TestSearchOverlayIsCentred(t *testing.T) {
+	m := modelWithRows(t, "web")
+	m, _ = step(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m, _ = step(t, m, key("/"))
+
+	lines := strings.Split(m.View(), "\n")
+	var first, last, boxLeft int
+	first, last = -1, -1
+	for i, ln := range lines {
+		if idx := strings.IndexAny(ln, "┏╭"); idx >= 0 {
+			if first < 0 {
+				first, boxLeft = i, idx
+			}
+		}
+		if strings.ContainsAny(ln, "┗╰") {
+			last = i
+		}
 	}
-	// Typing must reach the filter input, not the panel's own bindings.
-	m, _ = step(t, m, key("g"))
-	m, _ = step(t, m, key("enter"))
-	if got := m.system.Query(); got != "g" {
-		t.Fatalf("query = %q, want g", got)
+	if first < 0 || last < 0 {
+		t.Fatalf("no box drawn:\n%s", m.View())
+	}
+	if boxLeft < 10 {
+		t.Fatalf("box starts at column %d, not centred:\n%s", boxLeft, m.View())
+	}
+	if first < 5 {
+		t.Fatalf("box starts at row %d, not centred vertically:\n%s", first, m.View())
 	}
 }
 
@@ -188,18 +255,10 @@ func TestIToggleSwapsTheMainPaneForDetail(t *testing.T) {
 	if m.detail {
 		t.Fatal("i should close the command detail again")
 	}
-
-	// Detail is about the selected command, so it only opens from Commands.
-	m, _ = step(t, m, key("3"))
-	m, _ = step(t, m, key("i"))
-	if m.detail {
-		t.Fatal("i with Ports focused should not open the command detail")
-	}
 }
 
 func TestFocusGivesTheFocusedPanelItsRows(t *testing.T) {
 	m := modelWithRows(t, "web")
-	// A stacked (narrow) terminal, where only the focused panel gets height.
 	m, _ = step(t, m, tea.WindowSizeMsg{Width: 84, Height: 24})
 	if !m.stacked() {
 		t.Fatal("this test needs the stacked layout")
@@ -212,19 +271,5 @@ func TestFocusGivesTheFocusedPanelItsRows(t *testing.T) {
 	m, _ = step(t, m, key("2"))
 	if m.portsH > 1 {
 		t.Fatalf("Ports kept %d rows after losing focus", m.portsH)
-	}
-}
-
-func TestPortFilterWithNoMatchSaysSo(t *testing.T) {
-	now := time.Now()
-	s := newTestSystem(t, snapshotFixture(now), now)
-	s, _ = s.Update(key("/"))
-	s = typeIntoPorts(s, "zzz")
-	s, _ = s.Update(key("enter"))
-
-	for _, got := range []string{strings.Join(s.PanelRows(), "\n"), strings.Join(s.Detail(), "\n")} {
-		if !strings.Contains(got, `no port matches "zzz"`) {
-			t.Fatalf("an empty result must not read as nothing listening:\n%s", got)
-		}
 	}
 }

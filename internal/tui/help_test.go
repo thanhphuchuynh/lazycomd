@@ -13,7 +13,7 @@ func TestEveryScopeHasBindings(t *testing.T) {
 		}
 		seen[b.scope]++
 	}
-	for _, s := range []scope{scopeGlobal, scopeCommands, scopePorts, scopePalette} {
+	for _, s := range []scope{scopeGlobal, scopeCommands, scopePorts, scopeSearch, scopeLog} {
 		if seen[s] == 0 {
 			t.Fatalf("scope %d has no bindings", s)
 		}
@@ -22,15 +22,15 @@ func TestEveryScopeHasBindings(t *testing.T) {
 
 func TestKeyBarShowsTheFocusedScopePlusGlobal(t *testing.T) {
 	bar := keyBar(200, focusCommands)
-	for _, want := range []string{"start", "stop", "restart", "search commands", "detail", "quit", "panel"} {
+	for _, want := range []string{"start", "stop", "restart", "search", "detail", "open the full log", "quit", "panel"} {
 		if !strings.Contains(bar, want) {
 			t.Fatalf("commands key bar missing %q:\n%s", want, bar)
 		}
 	}
 
 	bar = keyBar(200, focusPorts)
-	if !strings.Contains(bar, "search ports") {
-		t.Fatalf("ports key bar missing its own search binding:\n%s", bar)
+	if !strings.Contains(bar, "search") {
+		t.Fatalf("ports key bar missing the global search binding:\n%s", bar)
 	}
 	if strings.Contains(bar, "restart") {
 		t.Fatalf("ports key bar shows a commands binding:\n%s", bar)
@@ -70,5 +70,30 @@ func TestKeyBarKeepsGlobalKeysWhenSpaceIsTight(t *testing.T) {
 	}
 	if got := len([]rune(bar)); got > 100 {
 		t.Fatalf("key bar is %d runes wide, want <= 100", got)
+	}
+}
+
+func TestOverlayKeyBarsDropThePanelKeys(t *testing.T) {
+	for _, s := range []scope{scopeSearch, scopeLog} {
+		bar := keyBarScope(200, s)
+		if strings.Contains(bar, "panel") || strings.Contains(bar, "cycle panels") {
+			t.Fatalf("overlay bar offers keys the overlay swallows:\n%s", bar)
+		}
+		if !strings.Contains(bar, "? help") {
+			t.Fatalf("overlay bar dropped help:\n%s", bar)
+		}
+	}
+	if bar := keyBarScope(200, scopeLog); !strings.Contains(bar, "filter these lines") {
+		t.Fatalf("log bar missing its filter binding:\n%s", bar)
+	}
+}
+
+func TestHelpOverlayFoldsIntoColumnsRatherThanCutting(t *testing.T) {
+	// A short, wide terminal: every binding still has to appear.
+	help := helpOverlay(120, 24)
+	for _, b := range bindings {
+		if !strings.Contains(help, b.desc) {
+			t.Fatalf("help at 120x24 dropped %q:\n%s", b.desc, help)
+		}
 	}
 }

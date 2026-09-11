@@ -37,9 +37,10 @@ type overlay int
 const (
 	overlayNone overlay = iota
 	overlayHelp
-	overlayPalette
+	overlaySearch
 	overlayForm
 	overlayConfirm
+	overlayLog
 )
 
 // scope is where a binding applies.
@@ -49,7 +50,8 @@ const (
 	scopeGlobal scope = iota
 	scopeCommands
 	scopePorts
-	scopePalette
+	scopeSearch
+	scopeLog
 )
 
 type binding struct {
@@ -66,21 +68,25 @@ var bindings = []binding{
 	{"s", "start", scopeCommands},
 	{"S", "stop", scopeCommands},
 	{"r", "restart", scopeCommands},
-	{"p", "search commands", scopeCommands},
 	{"i", "detail", scopeCommands},
-	{"/", "filter logs", scopeCommands},
+	{"o", "open the full log", scopeCommands},
 	{"a", "add", scopeCommands},
 	{"e", "edit", scopeCommands},
 	{"d", "delete", scopeCommands},
 	{"j/k", "move", scopePorts},
 	{"g/G", "first/last", scopePorts},
-	{"/", "search ports", scopePorts},
-	{"enter", "start and select", scopePalette},
-	{"esc", "close palette", scopePalette},
+	{"enter", "go to the match", scopeSearch},
+	{"ctrl+n/p", "next/prev match", scopeSearch},
+	{"esc", "close search", scopeSearch},
+	{"/", "filter these lines", scopeLog},
+	{"f", "follow", scopeLog},
+	{"ctrl+d/u", "scroll", scopeLog},
+	{"esc", "clear filter, else close", scopeLog},
+	{"o", "close", scopeLog},
 	{"1-3", "panel", scopeGlobal},
 	{"tab", "cycle panels", scopeGlobal},
 	{"ctrl+d/u", "scroll main", scopeGlobal},
-	{"f", "follow", scopeGlobal},
+	{"/", "search", scopeGlobal},
 	{"?", "help", scopeGlobal},
 	{"q", "quit", scopeGlobal},
 }
@@ -97,8 +103,11 @@ func scopeFor(f focus) scope {
 // keyBar renders the bottom hint line for the focused pane. The global keys
 // are laid out first so a narrow terminal drops pane-specific hints rather
 // than "? help" and "q quit", which are the ones you need when lost.
-func keyBar(width int, f focus) string {
-	want := scopeFor(f)
+func keyBar(width int, f focus) string { return keyBarScope(width, scopeFor(f)) }
+
+// keyBarScope renders the hint line for one scope. An overlay names its own:
+// inside the log view the panel keys do nothing, and showing them lies.
+func keyBarScope(width int, want scope) string {
 	var scoped, global []string
 	for _, b := range bindings {
 		entry := b.key + " " + b.desc
@@ -108,6 +117,11 @@ func keyBar(width int, f focus) string {
 		case want:
 			scoped = append(scoped, entry)
 		}
+	}
+	if want == scopeSearch || want == scopeLog {
+		// An overlay swallows the panel keys, so listing them would be a
+		// lie; help is the only global that still works.
+		global = []string{"? help"}
 	}
 
 	tail := strings.Join(global, "  ")
@@ -156,6 +170,11 @@ func helpOverlay(width, height int) string {
 	if len(body) > room {
 		body = helpBody(false) // drop the blank lines between groups
 	}
+	if len(body) > room && width >= 72 {
+		// Still too tall: fold the list itself into two columns rather than
+		// cutting groups off the bottom, which is where the newest keys are.
+		body = twoColumns(body[:splitAt(body)], body[splitAt(body):], width)
+	}
 
 	lines := []string{styleHeader.Render("lazycomd — keys"), ""}
 	lines = append(lines, body...)
@@ -190,7 +209,8 @@ func helpBody(spaced bool) []string {
 		{"global", scopeGlobal},
 		{"2 Commands", scopeCommands},
 		{"3 Ports", scopePorts},
-		{"palette", scopePalette},
+		{"search", scopeSearch},
+		{"log view", scopeLog},
 	}
 
 	var out []string
@@ -236,4 +256,26 @@ func cellPlain(s string, w int) string {
 		return truncate(s, w)
 	}
 	return s + strings.Repeat(" ", w-len([]rune(s)))
+}
+
+// splitAt is where to break the binding list into two columns: the group
+// header nearest the middle, so a group is never split across columns.
+func splitAt(body []string) int {
+	mid, best := len(body)/2, len(body)/2
+	for i, line := range body {
+		if strings.HasPrefix(line, " ") || line == "" {
+			continue // an indented line is a binding, not a group header
+		}
+		if abs(i-mid) < abs(best-mid) {
+			best = i
+		}
+	}
+	return best
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }

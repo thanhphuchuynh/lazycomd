@@ -68,7 +68,7 @@ func TestEndToEndStartAndWatch(t *testing.T) {
 	}
 }
 
-func TestEndToEndPaletteStartsAnotherCommand(t *testing.T) {
+func TestEndToEndSearchSelectsThenStartsAnotherCommand(t *testing.T) {
 	c, mgr := testDaemon(t, map[string]config.Command{
 		"tick":  {Cmd: []string{"sleep", "30"}, Cwd: "/tmp"},
 		"greet": {Cmd: []string{"sh", "-c", "echo hello; sleep 30"}, Cwd: "/tmp"},
@@ -89,6 +89,10 @@ func TestEndToEndPaletteStartsAnotherCommand(t *testing.T) {
 	if got, _ := m.table.Selected(); got.Name != "greet" {
 		t.Fatalf("selected = %q, want greet", got.Name)
 	}
+
+	// Enter only goes to the match; starting is still an explicit keystroke.
+	m, cmd = step(t, m, key("s"))
+	m = drive(t, m, cmd)
 	waitFor(t, "greet to run", func() bool {
 		st, err := mgr.Status("greet")
 		return err == nil && st.State == manager.Running
