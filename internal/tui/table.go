@@ -41,6 +41,7 @@ type tableLayout struct {
 	Height  int
 	Compact bool // NAME and STATE only
 	Wide    bool // room for CPU and MEM
+	Focused bool // draws a live cursor rather than a dimmed one
 }
 
 type tableModel struct {
@@ -51,6 +52,7 @@ type tableModel struct {
 	height   int
 	compact  bool
 	wide     bool
+	focused  bool
 }
 
 func newTable() tableModel { return tableModel{} }
@@ -58,10 +60,16 @@ func newTable() tableModel { return tableModel{} }
 func (t *tableModel) SetLayout(l tableLayout) {
 	t.width, t.height = l.Width, l.Height
 	t.compact, t.wide = l.Compact, l.Wide
+	t.focused = l.Focused
 }
 
 // showHealth reports whether any command has a health result to show. The
 // column stays hidden in a config with no health checks.
+// SetFocused controls whether this panel draws a live cursor. It is set at
+// render time, not in layout(): layout only runs on a resize, so a flag set
+// there goes stale the moment focus moves.
+func (t *tableModel) SetFocused(b bool) { t.focused = b }
+
 func (t tableModel) showHealth() bool {
 	for _, r := range t.rows {
 		if r.Health != nil {
@@ -215,7 +223,7 @@ func (t tableModel) View() string {
 		r := t.rows[i]
 		marker := "  "
 		if i == t.cursor {
-			marker = "> "
+			marker = cursorMark(t.focused)
 		}
 		state := string(r.State)
 		if r.SpecDirty {
@@ -322,4 +330,14 @@ func formatMem(mb float64) string {
 	default:
 		return fmt.Sprintf("%.1fG", mb/1024)
 	}
+}
+
+// cursorMark distinguishes the selection you are moving from the one waiting
+// in an unfocused panel: two live-looking cursors leave it ambiguous which
+// panel j and k belong to.
+func cursorMark(focused bool) string {
+	if focused {
+		return "> "
+	}
+	return styleDim.Render("· ")
 }

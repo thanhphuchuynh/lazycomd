@@ -22,12 +22,13 @@ const (
 )
 
 type systemModel struct {
-	snap   probe.Snapshot
-	cursor int
-	offset int
-	width  int
-	height int
-	now    func() time.Time
+	focused bool
+	snap    probe.Snapshot
+	cursor  int
+	offset  int
+	width   int
+	height  int
+	now     func() time.Time
 }
 
 func newSystem() systemModel {
@@ -37,6 +38,9 @@ func newSystem() systemModel {
 func (s *systemModel) SetSize(w, h int) {
 	s.width, s.height = w, h
 }
+
+// SetFocused controls whether this panel draws a live cursor.
+func (s *systemModel) SetFocused(b bool) { s.focused = b }
 
 // SetSnapshot replaces the sample, keeping the cursor on the same port where
 // it still exists so a refresh never moves the selection under you.
@@ -96,7 +100,7 @@ func (s systemModel) PanelRows() []string {
 		}
 		cursor := " "
 		if i == s.cursor {
-			cursor = ">"
+			cursor = strings.TrimSuffix(cursorMark(s.focused), " ")
 		}
 		rows = append(rows, fmt.Sprintf("%s%s%-6d %-10s %s", cursor, marker, p.Port, truncate(p.Process, 10), p.Command))
 	}

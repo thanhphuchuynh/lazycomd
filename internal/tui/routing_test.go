@@ -304,3 +304,29 @@ func TestNarrowTerminalStacksInsteadOfHiding(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyTheFocusedPanelDrawsALiveCursor(t *testing.T) {
+	// Focus used to be applied in layout(), which only runs on a resize, so
+	// moving focus left both panels drawing a live cursor.
+	m := modelWithRows(t, "a", "b")
+	m, _ = step(t, m, systemMsg(probe.Snapshot{
+		Ports:     []probe.Port{{Addr: "*", Port: 5432, PID: 1183, Process: "postgres"}},
+		SampledAt: map[string]time.Time{"ports": time.Now()},
+	}))
+
+	// Commands has focus: it owns the live cursor.
+	view := m.View()
+	if strings.Count(view, "> ") != 1 {
+		t.Fatalf("want exactly one live cursor with Commands focused:\n%s", view)
+	}
+
+	// Move to Ports without resizing; the live cursor must move with focus.
+	m, _ = step(t, m, key("3"))
+	view = m.View()
+	if strings.Count(view, "> ") != 1 {
+		t.Fatalf("want exactly one live cursor with Ports focused:\n%s", view)
+	}
+	if !strings.Contains(view, "·") {
+		t.Fatalf("the unfocused panel lost its dimmed selection:\n%s", view)
+	}
+}

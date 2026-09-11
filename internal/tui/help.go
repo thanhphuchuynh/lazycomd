@@ -130,8 +130,57 @@ func keyBar(width int, f focus) string {
 	return styleDim.Render(truncate(bar+tail, width))
 }
 
-// helpOverlay renders the full keymap, grouped by scope.
+// helpOverlay renders the full keymap. It gives up content in a deliberate
+// order — explanatory notes, then the blank lines between groups, then two
+// columns if the terminal is wide — and never drops the footer, because the
+// line telling you how to close it used to be the first thing truncated.
 func helpOverlay(width, height int) string {
+	notes := []string{
+		styleDim.Render("● healthy · ○ not answering · blank means no health: url"),
+		styleDim.Render("running* means the config changed; it applies on the"),
+		styleDim.Render("command's next start"),
+	}
+	footer := styleDim.Render("?, esc or q closes this help")
+
+	room := height - 3 // title, one blank, footer
+	body := helpBody(true)
+
+	if len(body)+len(notes)+1 > room {
+		if width >= 72 {
+			body = twoColumns(body, notes, width)
+		}
+		notes = nil
+	}
+	if len(body) > room {
+		body = helpBody(false) // drop the blank lines between groups
+	}
+
+	lines := []string{styleHeader.Render("lazycomd — keys"), ""}
+	lines = append(lines, body...)
+	if len(notes) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, notes...)
+	}
+
+	if cut := height - 1; len(lines) > cut {
+		lines = lines[:maxInt(cut-1, 1)]
+		lines = append(lines, styleDim.Render("…"))
+	}
+	for len(lines) < height-1 {
+		lines = append(lines, "")
+	}
+	lines = append(lines, footer)
+
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, truncate(l, width))
+	}
+	return strings.Join(out, "\n")
+}
+
+// helpBody is every binding, grouped. spaced controls whether the groups are
+// separated by a blank line, which is the first thing sacrificed for room.
+func helpBody(spaced bool) []string {
 	groups := []struct {
 		title string
 		scope scope
@@ -142,35 +191,41 @@ func helpOverlay(width, height int) string {
 		{"palette", scopePalette},
 	}
 
-	lines := []string{styleHeader.Render("lazycomd — keys")}
-	for _, g := range groups {
-		lines = append(lines, "", styleHeader.Render(g.title))
+	var out []string
+	for i, g := range groups {
+		if i > 0 && spaced {
+			out = append(out, "")
+		}
+		out = append(out, styleHeader.Render(g.title))
 		for _, b := range bindings {
 			if b.scope != g.scope {
 				continue
 			}
-			lines = append(lines, "  "+cellPlain(b.key, 10)+b.desc)
+			out = append(out, "  "+cellPlain(b.key, 10)+b.desc)
 		}
 	}
-	lines = append(lines,
-		"",
-		styleDim.Render("  1 Status, 2 Commands, 3 Ports; the right-hand pane"),
-		styleDim.Render("  follows whichever panel has focus"),
-		"",
-		styleDim.Render("  a state shown as running* means the config changed;"),
-		styleDim.Render("  the new spec applies on that command's next start"),
-		"",
-		styleDim.Render("  ?, esc or q closes this help"),
-	)
+	return out
+}
 
-	if len(lines) > height {
-		lines = lines[:height]
+// twoColumns lays the keymap beside the notes when one column will not fit.
+func twoColumns(left, right []string, width int) []string {
+	half := width/2 - 1
+	n := len(left)
+	if len(right) > n {
+		n = len(right)
 	}
-	out := make([]string, 0, len(lines))
-	for _, l := range lines {
-		out = append(out, truncate(l, width))
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		var l, r string
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		out = append(out, pad(l, half)+" "+r)
 	}
-	return strings.Join(out, "\n")
+	return out
 }
 
 // cellPlain pads without styling, for the help columns.
