@@ -3,6 +3,7 @@ package configw
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -284,5 +285,25 @@ func TestRenderedCommandKeepsFlowStyleAndNoSizeDefault(t *testing.T) {
 	}
 	if !strings.Contains(body, `cmd: [python3, -m, http.server, "8099"]`) {
 		t.Fatalf("cmd was not written in flow style:\n%s", body)
+	}
+}
+
+// A bare "commands:" (null value) is the shipped demo config's shape.
+func TestCreateUnderBareCommandsKey(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "c.yaml")
+	if err := os.WriteFile(p, []byte("# demo\ncommands:\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := NewRegistry().File(p)
+	if err := f.Create("db", config.Command{Cmd: []string{"./proxy", "a:b:c"}}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := config.ParseFile(p)
+	if err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	if _, ok := got.Commands["db"]; !ok || len(got.Commands) != 1 {
+		t.Fatalf("commands = %v", got.Commands)
 	}
 }
