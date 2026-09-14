@@ -17,8 +17,15 @@ func commandsPair(doc *yaml.Node) (*yaml.Node, *yaml.Node, bool) {
 	}
 	// A mapping's Content alternates key, value, key, value.
 	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "commands" && root.Content[i+1].Kind == yaml.MappingNode {
-			return root.Content[i], root.Content[i+1], true
+		if root.Content[i].Value != "commands" {
+			continue
+		}
+		// A bare "commands:" parses as a null scalar, not a mapping. Treat it
+		// as the empty mapping it means, or Create appends a second
+		// "commands:" key and the file stops parsing.
+		val := root.Content[i+1]
+		if val.Kind == yaml.MappingNode || val.Tag == "!!null" {
+			return root.Content[i], val, true
 		}
 	}
 	return nil, nil, false
