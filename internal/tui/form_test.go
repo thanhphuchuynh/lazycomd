@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -201,5 +203,132 @@ func TestFormViewFitsItsBox(t *testing.T) {
 		if w := runeWidth(l); w != 48 {
 			t.Fatalf("line %d is %d wide, want 48: %q", i, w, l)
 		}
+	}
+}
+
+func TestFormErrorWrapsAndGrowsTheBox(t *testing.T) {
+	f := newForm("/home/me", false)
+	f.OpenCreate(nil)
+	plain := f.Height(50)
+
+	f.SetError(strings.Repeat("long error ", 20))
+	lines := f.errLines(50)
+	if len(lines) < 2 {
+		t.Fatalf("error should wrap, got %d line(s)", len(lines))
+	}
+	for _, l := range lines {
+		if len(l) > 50 {
+			t.Fatalf("line %q is wider than the box", l)
+		}
+	}
+	if got := f.Height(50); got != plain+len(lines)-1 {
+		t.Fatalf("height = %d, want %d", got, plain+len(lines)-1)
+	}
+	if !strings.Contains(f.View(50, f.Height(50)), "⚠") {
+		t.Fatal("view should show the error")
+	}
+}
+
+func TestFolderCompletesRealDirectories(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "proxy-tools"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "proxy-file"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newForm(dir, false)
+	f.OpenCreate(nil)
+	f.field = fieldFolder
+	f.focus()
+	f.folder.SetValue(filepath.Join(dir, "pro"))
+	f, _ = f.Update(key("x")) // any keystroke refreshes the suggestions
+	f.folder.SetValue(filepath.Join(dir, "pro"))
+	f.folder.SetSuggestions(f.dirSuggestions())
+
+	if !f.completing() {
+		t.Fatalf("no completion for %q", f.folder.Value())
+	}
+	if got := f.folder.CurrentSuggestion(); got != filepath.Join(dir, "proxy-tools")+"/" {
+		t.Fatalf("suggestion = %q, want the directory, never the file", got)
+	}
+
+	f, _ = f.Update(key("tab")) // tab finishes the path instead of moving on
+	if f.field != fieldFolder {
+		t.Fatalf("tab left the folder field: %v", f.field)
+	}
+	if got := f.folder.Value(); got != filepath.Join(dir, "proxy-tools")+"/" {
+		t.Fatalf("value after tab = %q", got)
+	}
+	f, _ = f.Update(key("tab")) // nothing left to complete, so tab moves on
+	if f.field != fieldRestart {
+		t.Fatalf("second tab went to %v, want restart", f.field)
+	}
+}
+
+func TestFolderDropdownListsMatchesAndMovesWithArrows(t *testing.T) {
+	dir := t.TempDir()
+	for _, d := range []string{"proxy", "proxy-old"} {
+		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := newForm(dir, false)
+	f.OpenCreate(nil)
+	f.field = fieldFolder
+	f.folder.SetValue(filepath.Join(dir, "pro"))
+	f.focus()
+
+	view := f.View(76, f.Height(76))
+	for _, want := range []string{"proxy", "proxy-old"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("dropdown is missing %q:\n%s", want, view)
+		}
+	}
+	if got, want := f.folder.CurrentSuggestionIndex(), 0; got != want {
+		t.Fatalf("selection = %d, want %d", got, want)
+	}
+
+	// down walks the list instead of leaving the field.
+	f, _ = f.Update(key("down"))
+	if f.field != fieldFolder {
+		t.Fatalf("down left the folder field: %v", f.field)
+	}
+	if got := f.folder.CurrentSuggestionIndex(); got != 1 {
+		t.Fatalf("selection after down = %d, want 1", got)
+	}
+	if f.Height(76) <= newForm(dir, false).Height(76) {
+		t.Fatal("the open dropdown should make the box taller")
+	}
+}
+
+func TestLongCommandWrapsInsteadOfScrolling(t *testing.T) {
+	f := newForm("/home/me", false)
+	f.OpenEdit("db", config.Command{
+		Cmd: []string{"./cloud-sql-proxy", "project-aviron:us-central1:aviron-postgres-server-alpha-dev", "--port", "5433"},
+	}, nil)
+
+	lines := f.commandLines(60)
+	if len(lines) < 2 {
+		t.Fatalf("a long command should wrap, got %d line(s): %q", len(lines), lines)
+	}
+	if len(lines) > commandMaxLines {
+		t.Fatalf("wrapped to %d lines, past the %d cap", len(lines), commandMaxLines)
+	}
+	// Every word of the command is on screen, and the box grew to hold it.
+	joined := strings.Join(lines, "")
+	for _, want := range []string{"cloud-sql-proxy", "aviron-postgres-server-alpha-dev", "5433"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("wrapped view is missing %q:\n%s", want, strings.Join(lines, "\n"))
+		}
+	}
+	if f.Height(60) <= 9 {
+		t.Fatalf("height = %d, should grow with the wrapped field", f.Height(60))
+	}
+	// Wrapping is display only: the saved command is still one line.
+	_, c := f.Result()
+	if len(c.Cmd) != 4 || c.Shell {
+		t.Fatalf("Result() = %v shell=%v", c.Cmd, c.Shell)
 	}
 }

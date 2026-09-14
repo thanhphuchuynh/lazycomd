@@ -642,7 +642,11 @@ func (m Model) View() string {
 		return strings.Join([]string{m.header(), helpOverlay(m.width, m.bodyH), m.bottom()}, "\n")
 	}
 	if m.overlay == overlayForm {
-		body := m.form.View(minInt(m.width, 56), minInt(m.bodyH, m.form.Height()))
+		// A dialog centred over the body, the same shape as search: pinned to
+		// the corner it read as part of whatever was behind it.
+		w := clampInt(m.width*3/4, 44, 96)
+		box := m.form.View(w, minInt(m.bodyH, m.form.Height(w)))
+		body := lipgloss.Place(m.width, m.bodyH, lipgloss.Center, lipgloss.Center, box)
 		return strings.Join([]string{m.header(), body, m.bottom()}, "\n")
 	}
 	if m.overlay == overlaySearch {

@@ -1,10 +1,15 @@
 package tui
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
@@ -28,7 +33,7 @@ type formModel struct {
 	base    config.Command // what we started from, so unshown fields survive
 
 	name    textinput.Model
-	command textinput.Model
+	command textarea.Model
 	folder  textinput.Model
 	restart int
 	field   formField
@@ -48,14 +53,40 @@ func newForm(launchDir string, remote bool) formModel {
 		ti.CharLimit = limit
 		return ti
 	}
+	folder := mk(200)
+	folder.ShowSuggestions = true
 	return formModel{
 		name:      mk(80),
-		command:   mk(400),
-		folder:    mk(200),
+		command:   newCommandArea(),
+		folder:    folder,
 		launchDir: launchDir,
 		remote:    remote,
 	}
 }
+
+// newCommandArea is the COMMAND field: a textarea, so a long command wraps
+// onto more lines instead of scrolling sideways past the border. Enter is the
+// form's save key, so this never holds more than one logical line.
+func newCommandArea() textarea.Model {
+	ta := textarea.New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 400
+	ta.MaxHeight = commandMaxLines
+	// The default focused style paints the cursor line and adds padding; both
+	// fight the form's own focus marker and its label column.
+	for _, st := range []*textarea.Style{&ta.FocusedStyle, &ta.BlurredStyle} {
+		st.Base = lipgloss.NewStyle()
+		st.CursorLine = lipgloss.NewStyle()
+		st.CursorLineNumber = lipgloss.NewStyle()
+		st.EndOfBuffer = lipgloss.NewStyle()
+	}
+	return ta
+}
+
+// commandMaxLines caps how tall the COMMAND field grows; past it the textarea
+// scrolls, so the form never eats the whole screen.
+const commandMaxLines = 4
 
 // OpenCreate resets the form for a new command.
 func (f *formModel) OpenCreate(projects map[string]string) {
@@ -111,9 +142,10 @@ func (f *formModel) focus() {
 			f.name.Focus()
 		}
 	case fieldCommand:
-		f.command.Focus()
+		_ = f.command.Focus() // the blink cmd; the form redraws on every key anyway
 	case fieldFolder:
 		f.folder.Focus()
+		f.folder.SetSuggestions(f.dirSuggestions())
 	}
 }
 
@@ -124,10 +156,24 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 	}
 	switch k.String() {
 	case "tab", "down":
+		// On FOLDER, tab finishes the path first: moving on is one more tab.
+		if k.String() == "tab" && f.field == fieldFolder && f.completing() {
+			f.folder, _ = f.folder.Update(msg)
+			return f, nil
+		}
+		if k.String() == "down" && f.folderListOpen() {
+			f.folder, _ = f.folder.Update(msg)
+			return f, nil
+		}
 		f.field = (f.field + 1) % fieldCount
 		f.focus()
 		return f, nil
 	case "shift+tab", "up":
+		// With the dropdown open, up/down walk it rather than the fields.
+		if k.String() == "up" && f.folderListOpen() {
+			f.folder, _ = f.folder.Update(msg)
+			return f, nil
+		}
 		f.field = (f.field + fieldCount - 1) % fieldCount
 		f.focus()
 		return f, nil
@@ -156,6 +202,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 	case fieldFolder:
 		f.folder, cmd = f.folder.Update(msg)
 		f.folderTyped = true
+		f.folder.SetSuggestions(f.dirSuggestions())
 	}
 	return f, cmd
 }
@@ -197,6 +244,63 @@ func splitCommand(line string) ([]string, bool) {
 	return strings.Fields(line), false
 }
 
+// folderListOpen reports whether the folder dropdown has something in it.
+func (f formModel) folderListOpen() bool {
+	return f.field == fieldFolder && len(f.folder.MatchedSuggestions()) > 0
+}
+
+// completing reports whether the folder input is showing a completion that
+// is longer than what has been typed, so tab has something to accept.
+func (f formModel) completing() bool {
+	s := f.folder.CurrentSuggestion()
+	return s != "" && len(s) > len(f.folder.Value())
+}
+
+// dirSuggestions lists the directories that could finish the path being
+// typed. Only directories: a command runs in one, never in a file.
+//
+// The daemon may be on another machine, so a remote session completes
+// nothing — the paths here are this machine's.
+func (f formModel) dirSuggestions() []string {
+	if f.remote {
+		return nil
+	}
+	value := f.folder.Value()
+	if value == "" {
+		return nil
+	}
+	dir, prefix := filepath.Split(value)
+	if dir == "" {
+		return nil // a relative fragment names no directory to read
+	}
+	entries, err := os.ReadDir(expandHome(dir))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		// Trailing separator, so accepting one completion sets up the next
+		// level instead of stopping at the first directory.
+		out = append(out, dir+e.Name()+string(filepath.Separator))
+	}
+	return out // os.ReadDir is already sorted by name
+}
+
+// expandHome resolves a leading ~ for reading, leaving the typed value alone.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(h, strings.TrimPrefix(p, "~"))
+}
+
 // hint explains the focused field.
 func (f formModel) hint() string {
 	switch f.field {
@@ -214,18 +318,89 @@ func (f formModel) hint() string {
 		}
 		return "split on spaces · pipes and $ switch to shell mode"
 	case fieldFolder:
+		if f.folderListOpen() {
+			return "↑↓ pick · tab completes"
+		}
 		if !f.folderTyped && f.folder.Value() != "" {
 			return "suggested from where you launched · blank = ~"
 		}
 		return "where the command runs · blank = ~"
 	default:
-		return "no · on-failure · always"
+		return "when the command exits · ←/→ or space to change"
 	}
 }
 
-// Height is the form's natural height, so the caller does not leave it
-// padded with blank rows.
-func (f formModel) Height() int { return 9 }
+// Height is the form's natural height at this width: four fields, a blank
+// row, the hint or the wrapped error, the key line and both borders, plus
+// whatever the folder dropdown is showing.
+func (f formModel) Height(width int) int {
+	extra := len(f.commandLines(width)) - 1
+	return 8 + maxInt(len(f.errLines(width)), 1) + len(f.suggestionRows(width)) + extra
+}
+
+// commandLines renders the COMMAND field at this width, wrapped. The textarea
+// is sized here because a width only exists at render time.
+func (f formModel) commandLines(width int) []string {
+	f.command.SetWidth(maxInt(width-formPrefix-3, 8))
+	// LineCount counts logical lines, and this field only ever holds one, so
+	// the field is rendered at full height and the unused rows are dropped.
+	f.command.SetHeight(commandMaxLines)
+	lines := strings.Split(f.command.View(), "\n")
+	for len(lines) > 1 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// maxSuggestRows is how much of the dropdown is drawn at once; the window
+// follows the selection through a longer list.
+const maxSuggestRows = 6
+
+// suggestionRows is the dropdown under FOLDER: the directories the typed
+// path matches, the current one marked. Inline ghost text only ever shows
+// one of them, which hides how many there are.
+func (f formModel) suggestionRows(width int) []string {
+	if f.field != fieldFolder {
+		return nil
+	}
+	matches := f.folder.MatchedSuggestions()
+	if len(matches) == 0 {
+		return nil
+	}
+
+	cur := f.folder.CurrentSuggestionIndex()
+	start := 0
+	if cur >= maxSuggestRows {
+		start = cur - maxSuggestRows + 1
+	}
+	end := minInt(start+maxSuggestRows, len(matches))
+
+	pad := strings.Repeat(" ", formPrefix)
+	room := maxInt(width-formPrefix-4, 8)
+	out := make([]string, 0, end-start+1)
+	for i := start; i < end; i++ {
+		name := truncate(filepath.Base(strings.TrimSuffix(matches[i], "/")), room)
+		if i == cur {
+			out = append(out, pad+styleHeader.Render("▸ "+name))
+			continue
+		}
+		out = append(out, pad+styleDim.Render("  "+name))
+	}
+	if rest := len(matches) - end; rest > 0 {
+		out = append(out, pad+styleDim.Render(fmt.Sprintf("  +%d more", rest)))
+	}
+	return out
+}
+
+// errLines wraps the error to the box, so a long one from the daemon is read
+// in full instead of being cut at the border.
+func (f formModel) errLines(width int) []string {
+	if f.err == "" {
+		return nil
+	}
+	wrapped := lipgloss.NewStyle().Width(maxInt(width-6, 12)).Render(f.err)
+	return strings.Split(wrapped, "\n")
+}
 
 func (f formModel) View(width, height int) string {
 	title := "New command"
@@ -236,17 +411,35 @@ func (f formModel) View(width, height int) string {
 	// Inputs get a width so bubbles scrolls a long value; without one a long
 	// folder path ran straight into the border with nothing to say it was cut.
 	avail := maxInt(width-formPrefix-3, 8)
-	f.name.Width, f.command.Width, f.folder.Width = avail, avail, avail
+	f.name.Width, f.folder.Width = avail, avail
 
+	// A width only exists at render time, so a value filled in by OpenEdit
+	// computed its scroll offset against a width of zero and stayed pinned to
+	// its first character. Re-seat the cursor to recompute that offset, or a
+	// long command opens showing its head with the tail cut at the border.
+	for _, ti := range []*textinput.Model{&f.name, &f.folder} {
+		ti.SetCursor(ti.Position())
+	}
+
+	cmdLines := f.commandLines(width)
 	rows := []string{
 		f.row(fieldName, "NAME", f.nameView()),
-		f.row(fieldCommand, "COMMAND", f.command.View()),
-		f.row(fieldFolder, "FOLDER", f.folderView()),
-		f.row(fieldRestart, "RESTART", f.restartView()),
-		"",
+		f.row(fieldCommand, "COMMAND", cmdLines[0]),
 	}
-	if f.err != "" {
-		rows = append(rows, styleWarn.Render("  ⚠ "+f.err))
+	for _, line := range cmdLines[1:] {
+		rows = append(rows, strings.Repeat(" ", formPrefix)+line)
+	}
+	rows = append(rows, f.row(fieldFolder, "FOLDER", f.folderView()))
+	rows = append(rows, f.suggestionRows(width)...)
+	rows = append(rows, f.row(fieldRestart, "RESTART", f.restartView()), "")
+	if lines := f.errLines(width); len(lines) > 0 {
+		for i, line := range lines {
+			prefix := "  ⚠ "
+			if i > 0 {
+				prefix = "    "
+			}
+			rows = append(rows, styleWarn.Render(prefix+line))
+		}
 	} else {
 		rows = append(rows, styleDim.Render("  "+f.hint()))
 	}
@@ -285,14 +478,21 @@ func (f formModel) folderView() string {
 	return f.folder.View()
 }
 
-// restartView keeps the value in the same column whether or not it has focus;
-// it used to shift two places as you tabbed onto it.
+// restartView shows all three choices with the current one marked, so the
+// options are readable without tabbing onto the field and cycling it.
 func (f formModel) restartView() string {
-	v := string(restartChoices[f.restart])
-	if f.field == fieldRestart {
-		return "‹ " + v + " ›"
+	parts := make([]string, 0, len(restartChoices))
+	for i, r := range restartChoices {
+		switch {
+		case i != f.restart:
+			parts = append(parts, styleDim.Render(string(r)))
+		case f.field == fieldRestart:
+			parts = append(parts, styleHeader.Render("["+string(r)+"]"))
+		default:
+			parts = append(parts, string(r))
+		}
 	}
-	return styleDim.Render("‹ ") + v + styleDim.Render(" ›")
+	return strings.Join(parts, styleDim.Render(" · "))
 }
 
 // tail keeps the end of a path, which is the part that identifies it, and
