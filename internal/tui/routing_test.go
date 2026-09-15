@@ -313,3 +313,80 @@ func TestOnlyTheFocusedPanelDrawsALiveCursor(t *testing.T) {
 		t.Fatalf("the unfocused panel lost its dimmed selection:\n%s", view)
 	}
 }
+
+func TestProjectActionAppliesToEveryCommandInIt(t *testing.T) {
+	m := modelWithRows(t, "app:api", "app:web", "other:db")
+	m.table.SelectName("app:web")
+
+	m, _ = step(t, m, key("P"))
+	if !m.projectPending {
+		t.Fatal("P should wait for a verb")
+	}
+	if !strings.Contains(m.bottom(), "project app") {
+		t.Fatalf("status line = %q, want the project named", m.bottom())
+	}
+
+	m2, cmd := step(t, m, key("S"))
+	if m2.projectPending {
+		t.Fatal("the verb should clear the pending state")
+	}
+	if cmd == nil {
+		t.Fatal("no action issued")
+	}
+	// One doAction per command in the project, and none from another project.
+	got := map[string]string{}
+	collect(t, cmd, func(done actionDoneMsg) { got[done.name] = done.verb })
+	want := map[string]string{"app:api": "stop", "app:web": "stop"}
+	if len(got) != len(want) {
+		t.Fatalf("acted on %v, want %v", got, want)
+	}
+	for name, verb := range want {
+		if got[name] != verb {
+			t.Fatalf("acted on %v, want %v", got, want)
+		}
+	}
+}
+
+func TestProjectActionNeedsAProjectAndOneVerb(t *testing.T) {
+	m := modelWithRows(t, "solo")
+	m2, cmd := step(t, m, key("P"))
+	if m2.projectPending || cmd != nil {
+		t.Fatal("a command outside a project has no project to act on")
+	}
+	if !strings.Contains(m2.bottom(), "not in a project") {
+		t.Fatalf("status line = %q", m2.bottom())
+	}
+
+	// Any other key cancels, so a later s starts one command, not the project.
+	m = modelWithRows(t, "app:api", "app:web")
+	m, _ = step(t, m, key("P"))
+	m, _ = step(t, m, key("j"))
+	if m.projectPending {
+		t.Fatal("j should cancel the pending project action")
+	}
+	_, cmd = step(t, m, key("s"))
+	n := 0
+	collect(t, cmd, func(actionDoneMsg) { n++ })
+	if n != 1 {
+		t.Fatalf("s after a cancel acted on %d commands, want 1", n)
+	}
+}
+
+// collect runs a command — a tea.Batch of them, or one on its own — and hands
+// every actionDoneMsg it produced to fn.
+func collect(t *testing.T, cmd tea.Cmd, fn func(actionDoneMsg)) {
+	t.Helper()
+	if cmd == nil {
+		return
+	}
+	switch msg := cmd().(type) {
+	case actionDoneMsg:
+		fn(msg)
+	case tea.BatchMsg:
+		for _, c := range msg {
+			collect(t, c, fn)
+		}
+	default:
+		t.Fatalf("unexpected message %T", msg)
+	}
+}

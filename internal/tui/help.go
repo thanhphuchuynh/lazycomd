@@ -74,6 +74,7 @@ var bindings = []binding{
 	{"a", "add", scopeCommands},
 	{"e", "edit", scopeCommands},
 	{"d", "delete", scopeCommands},
+	{"P", "project, then s/S/r", scopeCommands},
 	{"j/k", "move", scopePorts},
 	{"g/G", "first/last", scopePorts},
 	{"enter", "go to the match", scopeSearch},

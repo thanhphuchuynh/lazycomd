@@ -63,6 +63,10 @@ type Model struct {
 	status    string
 	statusAt  time.Time
 
+	// projectPending is P waiting for its verb: the next s/S/r acts on every
+	// command in the selected command's project.
+	projectPending bool
+
 	stream *streamHandle
 	now    func() time.Time
 }
@@ -284,6 +288,16 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// P waits for one verb and one verb only: any other key cancels it, so a
+	// stray s two moves later starts one command, not a whole project.
+	if m.projectPending && s != "s" && s != "S" && s != "r" {
+		m.projectPending = false
+		m.setStatus("")
+		if s == "esc" {
+			return m, nil
+		}
+	}
+
 	switch s {
 	case "q":
 		return m, tea.Quit
@@ -368,7 +382,13 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "s", "S", "r":
+		if m.projectPending {
+			return m.runProjectAction(s)
+		}
 		return m.runAction(s)
+
+	case "P":
+		return m.armProjectAction()
 	}
 
 	return m.handlePanelKey(k)
@@ -405,6 +425,64 @@ func (m Model) handlePanelKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // runAction fires one lifecycle verb, but only from the Commands panel: a
 // keystroke that acts on something you cannot see is worse than an inert one.
+// armProjectAction waits for a verb, so one key does not have to mean three
+// things. The next s/S/r acts on every command in the selected command's
+// project; anything else cancels.
+func (m Model) armProjectAction() (tea.Model, tea.Cmd) {
+	if m.focus != focusCommands {
+		m.setStatus("press 2 for Commands first — P acts on a project")
+		return m, nil
+	}
+	sel, ok := m.table.Selected()
+	if !ok {
+		return m, nil
+	}
+	ns, _, namespaced := strings.Cut(sel.Name, ":")
+	if !namespaced {
+		m.setStatus(sel.Name + " is not in a project")
+		return m, nil
+	}
+	m.projectPending = true
+	m.setStatus(fmt.Sprintf("project %s (%d commands) — s start · S stop · r restart · esc cancel", ns, len(m.projectNames(ns))))
+	return m, nil
+}
+
+// runProjectAction applies one verb to every command in the project. Start
+// pulls dependencies in on its own, and the manager ignores a command that is
+// already where the verb would put it.
+func (m Model) runProjectAction(key string) (tea.Model, tea.Cmd) {
+	m.projectPending = false
+	sel, ok := m.table.Selected()
+	if !ok {
+		return m, nil
+	}
+	if !m.connected {
+		m.setStatus("daemon not running (start with: lazycomd serve)")
+		return m, nil
+	}
+	ns, _, _ := strings.Cut(sel.Name, ":")
+	names := m.projectNames(ns)
+	verb := map[string]string{"s": "start", "S": "stop", "r": "restart"}[key]
+
+	cmds := make([]tea.Cmd, 0, len(names))
+	for _, name := range names {
+		cmds = append(cmds, doAction(m.client, verb, name))
+	}
+	m.setStatus(fmt.Sprintf("%s %s: %d commands", verb, ns, len(names)))
+	return m, tea.Batch(cmds...)
+}
+
+// projectNames lists every command under one namespace, in table order.
+func (m Model) projectNames(ns string) []string {
+	var out []string
+	for _, name := range m.table.Names() {
+		if prefix, _, ok := strings.Cut(name, ":"); ok && prefix == ns {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func (m Model) runAction(key string) (tea.Model, tea.Cmd) {
 	if m.focus != focusCommands {
 		m.setStatus("press 2 for Commands first — " + key + " acts on the selected command")
