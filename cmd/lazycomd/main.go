@@ -29,6 +29,7 @@ usage: lazycomd [command] [flags]
   reload                   re-read the config and apply the diff
   port [N] [--json]        who is listening, and which command owns it
   doctor [--json]          check the catalog for what will fail to start
+  mcp                      serve the Model Context Protocol on stdio
   run <name>               start with dependencies, then follow output
   version                  print the build version
 
@@ -72,6 +73,8 @@ func dispatch(args []string) int {
 		return runPort(args[1:])
 	case "doctor":
 		return runDoctor(args[1:])
+	case "mcp":
+		return runMCP(args[1:])
 	case "start":
 		return runStart(args[1:])
 	case "stop":

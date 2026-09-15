@@ -36,17 +36,10 @@ func runDoctor(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-
-	specs := make(map[string]config.Command, len(list))
-	for _, s := range list {
-		spec, err := c.CommandConfig(s.Name)
-		if err != nil {
-			return fail(err)
-		}
-		specs[s.Name] = spec
+	findings, err := runDoctorFindings(c)
+	if err != nil {
+		return fail(err)
 	}
-
-	findings := check(list, specs, projectsOf(c), dirExists)
 
 	// A warning is not worth a non-zero exit; an error is, so a script — or
 	// an agent — can gate on it whichever way it asked for the output.
@@ -79,6 +72,24 @@ func runDoctor(args []string) int {
 		fmt.Printf("%-5s %s%s\n", f.Level, where, f.Message)
 	}
 	return code
+}
+
+// runDoctorFindings gathers everything doctor looks at and runs the checks,
+// so the CLI and the MCP tool see the same findings.
+func runDoctorFindings(c *client.Client) ([]Finding, error) {
+	list, err := c.List()
+	if err != nil {
+		return nil, err
+	}
+	specs := make(map[string]config.Command, len(list))
+	for _, s := range list {
+		spec, err := c.CommandConfig(s.Name)
+		if err != nil {
+			return nil, err
+		}
+		specs[s.Name] = spec
+	}
+	return check(list, specs, projectsOf(c), dirExists), nil
 }
 
 // projectsOf reads the project list, tolerating a daemon too old to serve it.
