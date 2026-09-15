@@ -20,12 +20,14 @@ usage: lazycomd [command] [flags]
 
   (no command)             open the TUI
   serve                    run the daemon in the foreground
-  ls                       list commands and their state
+  ls [--json]              list commands and their state
   start <name> [-d]        start a command (-d starts dependencies first)
   stop <name>              stop a command
   restart <name>           restart a command
   logs <name> [-n N] [-f]  show, or follow, a command's output
   reload                   re-read the config and apply the diff
+  port [N] [--json]        who is listening, and which command owns it
+  doctor [--json]          check the catalog for what will fail to start
   run <name>               start with dependencies, then follow output
   version                  print the build version
 
@@ -63,6 +65,10 @@ func dispatch(args []string) int {
 		return runServe(args[1:])
 	case "ls":
 		return runLs(args[1:])
+	case "port":
+		return runPort(args[1:])
+	case "doctor":
+		return runDoctor(args[1:])
 	case "start":
 		return runStart(args[1:])
 	case "stop":

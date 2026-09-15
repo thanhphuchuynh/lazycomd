@@ -54,7 +54,8 @@ func usageErr(line string) int {
 
 func runLs(args []string) int {
 	flags := flag.NewFlagSet("ls", flag.ContinueOnError)
-	if err := flags.Parse(args); err != nil {
+	asJSON := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(hoistFlags(args, nil)); err != nil {
 		return 2
 	}
 	c, err := client.Default()
@@ -64,6 +65,12 @@ func runLs(args []string) int {
 	list, err := c.List()
 	if err != nil {
 		return fail(err)
+	}
+	if *asJSON {
+		if list == nil {
+			list = []manager.Status{}
+		}
+		return printJSON(list)
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
