@@ -43,6 +43,11 @@ type Client struct {
 	token string
 }
 
+// requestTimeout outlives the longest request this API has: a start with
+// --wait holds the response open until the command is ready, which the daemon
+// caps at two minutes.
+const requestTimeout = 3 * time.Minute
+
 // New builds a client for addr: "unix:///path/to.sock" or "http://host:port".
 func New(addr, token string) (*Client, error) {
 	if sock, ok := strings.CutPrefix(addr, "unix://"); ok {
@@ -62,7 +67,7 @@ func New(addr, token string) (*Client, error) {
 			base:  strings.TrimSuffix(addr, "/"),
 			addr:  addr,
 			token: token,
-			http:  &http.Client{Timeout: 30 * time.Second},
+			http:  &http.Client{Timeout: requestTimeout},
 		}, nil
 	}
 	return nil, fmt.Errorf("bad address %q: want unix:///path/to.sock or http://host:port", addr)
@@ -97,9 +102,25 @@ func (c *Client) Get(name string) (manager.Status, error) {
 
 // Start starts a command, optionally starting its dependencies first.
 func (c *Client) Start(name string, withDeps bool) (manager.Status, error) {
+	return c.StartWait(name, withDeps, 0)
+}
+
+// StartWait starts a command and, with a non-zero wait, holds until it is
+// ready: its health URL answers, or its port accepts a connection. The daemon
+// does the waiting, since that is the machine the command runs on.
+func (c *Client) StartWait(name string, withDeps bool, wait time.Duration) (manager.Status, error) {
 	var out manager.Status
-	body := map[string]bool{"with_deps": withDeps}
-	return out, c.do(context.Background(), "POST", "/v1/commands/"+url.PathEscape(name)+"/start", body, &out)
+	body := map[string]any{"with_deps": withDeps}
+	ctx := context.Background()
+	if wait > 0 {
+		body["wait_sec"] = wait.Seconds()
+		// The request is held open for the whole wait, so the context has to
+		// outlive it. The daemon caps the wait itself.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, wait+10*time.Second)
+		defer cancel()
+	}
+	return out, c.do(ctx, "POST", "/v1/commands/"+url.PathEscape(name)+"/start", body, &out)
 }
 
 // Stop stops a command.

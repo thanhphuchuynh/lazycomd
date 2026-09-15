@@ -22,6 +22,7 @@ usage: lazycomd [command] [flags]
   serve                    run the daemon in the foreground
   ls [--json]              list commands and their state
   start <name> [-d]        start a command (-d starts dependencies first)
+      [--wait 30s]         ... and block until it answers or binds its port
   stop <name>              stop a command
   restart <name>           restart a command
   logs <name> [-n N] [-f]  show, or follow, a command's output
@@ -30,6 +31,8 @@ usage: lazycomd [command] [flags]
   doctor [--json]          check the catalog for what will fail to start
   run <name>               start with dependencies, then follow output
   version                  print the build version
+
+  --json works on ls, port, doctor, start, stop, restart and logs.
 
 environment:
   LAZYCOMD_ADDR    unix:///path/to.sock or http://host:port

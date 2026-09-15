@@ -65,3 +65,9 @@ func collectHealth(ctx context.Context, c *http.Client, urls map[string]string) 
 	}
 	return out
 }
+
+// Check probes one URL once, for a caller that cannot wait for the sampler's
+// next pass — "is it up yet" during a start, rather than "was it up".
+func Check(ctx context.Context, url string) Health {
+	return probeOne(ctx, newHTTPClient(), url)
+}

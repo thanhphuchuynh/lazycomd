@@ -97,11 +97,13 @@ func runLs(args []string) int {
 func runStart(args []string) int {
 	flags := flag.NewFlagSet("start", flag.ContinueOnError)
 	deps := flags.Bool("d", false, "start dependencies first")
-	if err := flags.Parse(hoistFlags(args, nil)); err != nil {
+	wait := flags.Duration("wait", 0, "block until the command is ready, e.g. 30s")
+	asJSON := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(hoistFlags(args, map[string]bool{"-wait": true, "--wait": true})); err != nil {
 		return 2
 	}
 	if flags.NArg() != 1 {
-		return usageErr("start <name> [-d]")
+		return usageErr("start <name> [-d] [--wait 30s] [--json]")
 	}
 	c, err := client.Default()
 	if err != nil {
@@ -111,9 +113,18 @@ func runStart(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	st, err := c.Start(name, *deps)
+	st, err := c.StartWait(name, *deps, *wait)
 	if err != nil {
 		return fail(err)
+	}
+	return reportStatus(st, *asJSON)
+}
+
+// reportStatus is how every lifecycle verb prints its one result: a line for
+// a person, the whole manager.Status for anything parsing it.
+func reportStatus(st manager.Status, asJSON bool) int {
+	if asJSON {
+		return printJSON(st)
 	}
 	fmt.Printf("%s %s\n", st.Name, st.State)
 	return 0
@@ -122,11 +133,12 @@ func runStart(args []string) int {
 // runSimple handles stop and restart, which take a name and nothing else.
 func runSimple(verb string, args []string) int {
 	flags := flag.NewFlagSet(verb, flag.ContinueOnError)
-	if err := flags.Parse(args); err != nil {
+	asJSON := flags.Bool("json", false, "print JSON")
+	if err := flags.Parse(hoistFlags(args, nil)); err != nil {
 		return 2
 	}
 	if flags.NArg() != 1 {
-		return usageErr(verb + " <name>")
+		return usageErr(verb + " <name> [--json]")
 	}
 	c, err := client.Default()
 	if err != nil {
@@ -146,19 +158,19 @@ func runSimple(verb string, args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	fmt.Printf("%s %s\n", st.Name, st.State)
-	return 0
+	return reportStatus(st, *asJSON)
 }
 
 func runLogs(args []string) int {
 	flags := flag.NewFlagSet("logs", flag.ContinueOnError)
 	n := flags.Int("n", 200, "lines of scrollback")
 	follow := flags.Bool("f", false, "follow output")
+	asJSON := flags.Bool("json", false, "print JSON")
 	if err := flags.Parse(hoistFlags(args, map[string]bool{"-n": true})); err != nil {
 		return 2
 	}
 	if flags.NArg() != 1 {
-		return usageErr("logs <name> [-n N] [-f]")
+		return usageErr("logs <name> [-n N] [-f] [--json]")
 	}
 	c, err := client.Default()
 	if err != nil {
@@ -171,6 +183,14 @@ func runLogs(args []string) int {
 	lines, err := c.Logs(name, *n)
 	if err != nil {
 		return fail(err)
+	}
+	if *asJSON {
+		if lines == nil {
+			lines = []string{}
+		}
+		// Following and JSON do not mix: one is a stream, the other a
+		// document. --json wins and returns what there is.
+		return printJSON(map[string]any{"name": name, "lines": lines})
 	}
 	for _, l := range lines {
 		fmt.Println(l)

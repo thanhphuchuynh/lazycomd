@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -233,5 +234,98 @@ func TestBareInvocationWithoutATTYPrintsUsage(t *testing.T) {
 func TestUsageMentionsTheTUI(t *testing.T) {
 	if !strings.Contains(usage, "TUI") {
 		t.Fatalf("usage should say the bare command opens the TUI:\n%s", usage)
+	}
+}
+
+func TestStartWaitReturnsWhenThePortAnswers(t *testing.T) {
+	// A listener the "command" is pretending to be: the port is up before the
+	// wait begins, so readiness is the thing under test, not the timing.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	port := l.Addr().(*net.TCPAddr).Port
+
+	testDaemon(t, map[string]config.Command{
+		"api": {Cmd: []string{"sleep", "30"}, Port: port},
+	})
+
+	out := capture(t, func() {
+		if code := dispatch([]string{"start", "api", "--wait", "10s", "--json"}); code != 0 {
+			t.Errorf("start --wait = %d, want 0", code)
+		}
+	})
+	var st manager.Status
+	if err := json.Unmarshal([]byte(out), &st); err != nil {
+		t.Fatalf("start --json is not JSON: %v\n%s", err, out)
+	}
+	if st.Name != "api" || st.State != manager.Running {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestStartWaitFailsWhenItNeverComesUp(t *testing.T) {
+	testDaemon(t, map[string]config.Command{
+		// Nothing ever listens on this port, so the wait has to time out.
+		"api": {Cmd: []string{"sleep", "30"}, Port: 65533},
+	})
+
+	if code := dispatch([]string{"start", "api", "--wait", "1s"}); code != 1 {
+		t.Fatalf("a start that never becomes ready = %d, want 1", code)
+	}
+}
+
+func TestLifecycleJSON(t *testing.T) {
+	testDaemon(t, map[string]config.Command{"api": {Cmd: []string{"sleep", "30"}}})
+
+	for _, verb := range []string{"start", "restart", "stop"} {
+		out := capture(t, func() {
+			if code := dispatch([]string{verb, "api", "--json"}); code != 0 {
+				t.Errorf("%s --json = %d, want 0", verb, code)
+			}
+		})
+		var st manager.Status
+		if err := json.Unmarshal([]byte(out), &st); err != nil {
+			t.Fatalf("%s --json is not JSON: %v\n%s", verb, err, out)
+		}
+		if st.Name != "api" {
+			t.Fatalf("%s returned %+v", verb, st)
+		}
+	}
+}
+
+func TestLogsJSON(t *testing.T) {
+	m := testDaemon(t, map[string]config.Command{
+		"noisy": {Cmd: []string{"sh", "-c", "echo hello from the test; sleep 30"}},
+	})
+	if err := m.Start("noisy"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if buf, err := m.Logs("noisy"); err == nil && len(buf.Tail(10)) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the command never logged anything")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	out := capture(t, func() {
+		if code := dispatch([]string{"logs", "noisy", "--json"}); code != 0 {
+			t.Errorf("logs --json = %d, want 0", code)
+		}
+	})
+	var body struct {
+		Name  string   `json:"name"`
+		Lines []string `json:"lines"`
+	}
+	if err := json.Unmarshal([]byte(out), &body); err != nil {
+		t.Fatalf("logs --json is not JSON: %v\n%s", err, out)
+	}
+	if body.Name != "noisy" || len(body.Lines) == 0 || !strings.Contains(body.Lines[0], "hello from the test") {
+		t.Fatalf("logs body = %+v", body)
 	}
 }

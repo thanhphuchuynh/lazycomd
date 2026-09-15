@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"time"
 
 	"github.com/thanhphuchuynh/lazycomd/internal/config"
 	"github.com/thanhphuchuynh/lazycomd/internal/configw"
@@ -73,6 +74,10 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 
 type startBody struct {
 	WithDeps bool `json:"with_deps"`
+	// WaitSec blocks the response until the command is ready — its health URL
+	// answers, or its port accepts — so a caller that has something to run
+	// next does not have to poll for it. Zero returns as soon as it spawns.
+	WaitSec float64 `json:"wait_sec,omitempty"`
 }
 
 func (s *Server) start(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +96,17 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.fail(w, err)
+		return
+	}
+	if body.WaitSec > 0 {
+		st, err := s.waitReady(r.Context(), name, time.Duration(body.WaitSec*float64(time.Second)))
+		if err != nil {
+			// The command started; it just is not ready. Say both, so a
+			// caller can read the state it reached.
+			writeJSON(w, http.StatusGatewayTimeout, map[string]any{"error": err.Error(), "status": st})
+			return
+		}
+		writeJSON(w, http.StatusOK, s.enrich([]manager.Status{st})[0])
 		return
 	}
 	s.get(w, r)
