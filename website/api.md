@@ -12,7 +12,7 @@ TCP listener that requires `Authorization: Bearer <token>`.
 | `GET /v1/healthz` | | `{"status":"ok"}` |
 | `GET /v1/commands` | | array of status objects |
 | `GET /v1/commands/{name}` | | one status object |
-| `POST /v1/commands/{name}/start` | `{"with_deps":true}` optional | status |
+| `POST /v1/commands/{name}/start` | `{"with_deps":true,"wait_sec":30}` optional | status |
 | `POST /v1/commands/{name}/stop` | | status |
 | `POST /v1/commands/{name}/restart` | | status |
 | `GET /v1/commands/{name}/logs` | `?tail=200` (max 10000) | array of lines |
@@ -29,6 +29,12 @@ A status object: `name`, `state` (`stopped`, `starting`, `running`,
 `stopping`, `failed`), `pid`, `uptime_sec`, `exit_code`, `restarts`,
 `spec_dirty`, `depends_on`, plus `cpu`, `mem_mb` and `health` when the probe
 sampler has measured them.
+
+`wait_sec` holds the response until the command is ready — its `health:` URL
+answers 2xx, or its `port:` accepts a connection, or, with neither, it is
+running. A command that exits while starting fails at once; one that never
+becomes ready returns 504 with `{"error":..., "status":{...}}` so the caller
+can see the state it reached. The daemon caps the wait at two minutes.
 
 Errors are `{"error":"..."}` with 400 (malformed request or broken config),
 401 (bad token), 404 (unknown command), 409 (illegal in the current state) or

@@ -8,7 +8,7 @@ import (
 )
 
 func TestPagesExist(t *testing.T) {
-	want := []string{"index.md", "install.md", "tui.md", "cli.md", "configuration.md", "api.md", "behavior.md"}
+	want := []string{"index.md", "install.md", "tui.md", "cli.md", "configuration.md", "api.md", "agents.md", "behavior.md"}
 	for _, p := range want {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("missing %s: %v", p, err)

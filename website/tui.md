@@ -41,6 +41,7 @@ explains itself.
 | `s` | Commands | start, dependencies first |
 | `S` | Commands | stop |
 | `r` | Commands | restart |
+| `P` | Commands | act on the whole project: `P` then `s`, `S` or `r` |
 | `/` `p` | anywhere | search box: commands, listening ports and the buffered log |
 | `i` | Commands | detail for the selected command: spec, state, ports, health |
 | `o` | Commands | open the full log, which is where the log filter lives |
@@ -70,6 +71,12 @@ filter lives in the full view where there is room to read the result.
 Lifecycle keys act on the Commands panel only; pressed elsewhere they say so
 rather than acting on something you cannot see.
 
+`P` acts on a whole project instead of one command: it names the selected
+command's project and waits for a verb, and `s`, `S` or `r` then applies to
+every command in it. Any other key cancels, so a stray `s` two moves later
+still acts on one command. Start pulls dependencies in per command, so a
+project comes up in the order its `depends_on` describes.
+
 The sidebar shows memory from about 34 columns and adds CPU and restart counts
 past 46. A command's pid rides in the main pane's title, since a sidebar has no
 column to spare for it. Below 90 columns the two columns become two rows: the
@@ -91,30 +98,50 @@ instead of launching.
 
 ## Editing the config from the TUI
 
-`a` opens a four-field form and writes the result into your config:
+`a` opens a form, centred over the panels, and writes the result into your
+config:
 
 ```
-╭─ New command ──────────────────────────────────╮
-│                                                │
-│  NAME     web                                  │
-│  COMMAND  npm start                            │
-│  FOLDER   ~/coding/app                         │
-│  RESTART  ‹ on-failure ›                       │
-│                                                │
-│  where the command runs · blank = ~            │
-│  tab next · enter save · esc cancel            │
-╰────────────────────────────────────────────────╯
+┏━ New command ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  NAME      app:api                                         ┃
+┃› COMMAND   go run .                                        ┃
+┃  FOLDER    ~/coding/app                                    ┃
+┃            ▸ app                                           ┃
+┃              app-worker                                    ┃
+┃  ENV       LOG=debug PGPASSWORD=hunter2                    ┃
+┃  PORT      8080                                            ┃
+┃  HEALTH    http://localhost:8080/healthz                   ┃
+┃  RESTART   no · on-failure · always                        ┃
+┃  AUTOSTART yes · no                                        ┃
+┃                                                            ┃
+┃  ↑↓ pick · tab completes                                   ┃
+┃  tab next · enter save · esc cancel                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
 FOLDER is `cwd:` in the file — where the command runs. It opens filled with
-the directory you launched the TUI in, and follows the project once the name
-is namespaced, as in `app:api`.
+the directory you launched the TUI in, follows the project once the name is
+namespaced (`app:api`), and completes real directories as you type: `tab`
+finishes the path, the dropdown lists the matches, `↑↓` pick one.
 
-The command line splits on spaces. A line containing `|`, `>`, `<`, `&`, `;`,
-`$` or `*` goes to `sh -c` whole instead, and the form says so while you type.
+COMMAND wraps rather than scrolling sideways, so a long line is readable in
+full. It splits on spaces; a line containing `|`, `>`, `<`, `&`, `;`, `$` or
+`*` goes to `sh -c` whole instead, and the form says so while you type.
+
+ENV is one line of `KEY=VALUE` pairs. A value holding a space cannot survive
+that shape, so a command with one keeps its env and the field goes read-only
+rather than writing back half of it.
+
+RESTART and AUTOSTART show every choice with the current one marked: `←` `→`
+or space changes it.
+
+The form checks its own work before saving — the port parses, the env is well
+formed, the health URL has an http scheme — so a typo is caught in the field
+rather than by the daemon's reparse. A failing write shows the daemon's whole
+error, wrapped over as many lines as it needs.
 
 `e` edits the selected command. It reads the command's full spec first, so
-fields the form never shows — `env`, `depends_on`, `health`, `port` — survive
+fields the form still does not show — `depends_on`, `size`, `log` — survive
 the edit untouched. Renaming is not offered: that is a file edit.
 
 `d` deletes, after a prompt naming the file that will change.

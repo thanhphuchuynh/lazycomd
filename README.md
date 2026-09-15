@@ -43,7 +43,28 @@ commands:
     port: 3000
 ```
 
-Then `lazycomd` → `2` → `s` on `app:web`.
+Then `lazycomd` → `2` → `s` on `app:web`. Or from a shell:
+
+```bash
+lazycomd start app:web --wait 30s   # blocks until it answers, non-zero if it never does
+lazycomd port 3000                  # who owns the port, and whether it is ours
+lazycomd doctor                     # what will fail to start, before it does
+lazycomd ls --json                  # every verb has one
+```
+
+## For agents
+
+```bash
+claude mcp add lazycomd -- lazycomd mcp
+```
+
+Your agent's shell dies when its turn ends, so anything it starts dies with
+it. `lazycomd mcp` gives it eleven tools over the same daemon you use — start
+and wait for readiness, read the crash log, find who holds a port, check the
+catalog, register what it just scaffolded — and what it starts is still up on
+its next turn, in your TUI.
+
+[Docs: agents](https://thanhphuchuynh.github.io/lazycomd/agents/).
 
 ## vs the others
 
@@ -53,6 +74,7 @@ Then `lazycomd` → `2` → `s` on `app:web`.
 | One catalog for every project | yes | per folder | per folder | per Procfile |
 | HTTP API | yes | no | yes | no |
 | Who owns this port? | yes | no | no | no |
+| MCP server for agents | yes | no | no | no |
 
 mprocs dies when you quit. process-compose is docker-compose for binaries.
 overmind is tmux + Procfile. lazycomd is the leftover slot: one user-wide daemon.

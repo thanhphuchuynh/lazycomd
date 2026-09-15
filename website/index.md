@@ -32,5 +32,10 @@ projects:
 | One catalog for every project | yes | per folder | per folder | per Procfile |
 | HTTP API | yes | no | yes | no |
 | Who owns this port? | yes | no | no | no |
+| MCP server for agents | yes | no | no | no |
+
+Agents get the same daemon you do — `claude mcp add lazycomd -- lazycomd mcp`
+and what your agent starts is still running on its next turn, in your TUI.
+See [Agents]({{ '/agents/' | relative_url }}).
 
 Source: [github.com/thanhphuchuynh/lazycomd](https://github.com/thanhphuchuynh/lazycomd).
