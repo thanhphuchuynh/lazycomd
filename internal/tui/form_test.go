@@ -415,3 +415,37 @@ func TestFormLocksEnvItCannotRoundTrip(t *testing.T) {
 		t.Fatalf("locked env was rewritten: %v", c.Env)
 	}
 }
+
+func TestCommandFieldLeavesNoBlankRows(t *testing.T) {
+	f := newForm("/home/me", false)
+	f.OpenEdit("db", config.Command{Cmd: []string{"./proxy"}}, nil)
+
+	// A one-line command is one row, not one row plus the textarea's padding.
+	if got := f.commandLines(60); len(got) != 1 {
+		t.Fatalf("a short command rendered %d rows: %q", len(got), got)
+	}
+}
+
+func TestSecondTabLeavesTheFolderField(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "nested", "deeper"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := newForm(dir, false)
+	f.OpenCreate(nil)
+	f.field = fieldFolder
+	f.folder.SetValue(filepath.Join(dir, "nes"))
+	f.focus()
+	f.folder.SetSuggestions(f.dirSuggestions())
+
+	f, _ = f.Update(key("tab")) // completes to .../nested/
+	if f.field != fieldFolder {
+		t.Fatalf("the completing tab left the field: %v", f.field)
+	}
+	// "nested/" offers "deeper/" next; without the guard tab would complete
+	// forever and never reach the next field.
+	f, _ = f.Update(key("tab"))
+	if f.field != fieldEnv {
+		t.Fatalf("the second tab went to %v, want env", f.field)
+	}
+}

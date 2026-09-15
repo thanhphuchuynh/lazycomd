@@ -54,7 +54,12 @@ type formModel struct {
 	envLocked bool
 
 	folderTyped bool // you edited it, so stop prefilling over you
-	err         string
+
+	// justCompleted is set by a tab that accepted a path. Every directory
+	// with a subdirectory offers another completion, so without this a tab
+	// could never leave the FOLDER field.
+	justCompleted bool
+	err           string
 
 	launchDir string
 	remote    bool
@@ -100,6 +105,24 @@ func newCommandArea() textarea.Model {
 		st.EndOfBuffer = lipgloss.NewStyle()
 	}
 	return ta
+}
+
+// blankRow reports whether a rendered row draws nothing but spaces.
+func blankRow(s string) bool {
+	var inEsc bool
+	for _, r := range s {
+		switch {
+		case r == '\x1b':
+			inEsc = true
+		case inEsc:
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+		case r != ' ':
+			return false
+		}
+	}
+	return true
 }
 
 // commandMaxLines caps how tall the COMMAND field grows; past it the textarea
@@ -195,8 +218,9 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 	switch k.String() {
 	case "tab", "down":
 		// On FOLDER, tab finishes the path first: moving on is one more tab.
-		if k.String() == "tab" && f.field == fieldFolder && f.completing() {
+		if k.String() == "tab" && f.field == fieldFolder && f.completing() && !f.justCompleted {
 			f.folder, _ = f.folder.Update(msg)
+			f.justCompleted = true
 			return f, nil
 		}
 		if k.String() == "down" && f.folderListOpen() {
@@ -204,6 +228,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			return f, nil
 		}
 		f.field = (f.field + 1) % fieldCount
+		f.justCompleted = false
 		f.focus()
 		return f, nil
 	case "shift+tab", "up":
@@ -213,6 +238,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			return f, nil
 		}
 		f.field = (f.field + fieldCount - 1) % fieldCount
+		f.justCompleted = false
 		f.focus()
 		return f, nil
 	}
@@ -233,6 +259,8 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		}
 		return f, nil
 	}
+
+	f.justCompleted = false
 
 	var cmd tea.Cmd
 	switch f.field {
@@ -514,7 +542,10 @@ func (f formModel) commandLines(width int) []string {
 	// the field is rendered at full height and the unused rows are dropped.
 	f.command.SetHeight(commandMaxLines)
 	lines := strings.Split(f.command.View(), "\n")
-	for len(lines) > 1 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+	// A "blank" row still carries the textarea's style escapes, so emptiness
+	// has to be judged on what the terminal draws — otherwise a one-line
+	// command leaves three empty rows sitting in the form.
+	for len(lines) > 1 && blankRow(lines[len(lines)-1]) {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
