@@ -3,9 +3,14 @@ commands:
     cmd: ["python3", "-m", "http.server", "18099"]
     cwd: /tmp
     port: 18099
-    autostart: true
   worker:
     cmd: ["sleep", "3600"]
   tunnel:
     cmd: ["sleep", "3600"]
     restart: on-failure
+  # Deliberately broken, so `lazycomd doctor` has something to report:
+  # its folder is gone, and it wants a port web already binds.
+  legacy:
+    cmd: ["node", "server.js"]
+    cwd: /tmp/lzc-demo/old-checkout
+    port: 18099

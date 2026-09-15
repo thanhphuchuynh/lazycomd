@@ -29,3 +29,21 @@ func TestConfigIsGitHubPages(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The page GIFs are checked in, since GitHub Pages serves them straight from
+// the repo. record.sh regenerates all three.
+func TestRecordingsArePresent(t *testing.T) {
+	for _, gif := range []string{"demo.gif", "cli.gif", "mcp.gif"} {
+		fi, err := os.Stat(gif)
+		if err != nil {
+			t.Errorf("missing %s: %v", gif, err)
+			continue
+		}
+		if fi.Size() < 10*1024 {
+			t.Errorf("%s is %d bytes, which is too small to be a real recording", gif, fi.Size())
+		}
+	}
+	if _, err := os.Stat("record.sh"); err != nil {
+		t.Errorf("record.sh should be checked in so the GIFs can be remade: %v", err)
+	}
+}
