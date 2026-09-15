@@ -69,7 +69,11 @@ func TestMCPHandshakeAndToolList(t *testing.T) {
 	if err := json.Unmarshal(blob, &list); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"list_commands", "get_logs", "start_command", "stop_command", "restart_command", "who_owns_port", "create_command", "doctor"}
+	want := []string{
+		"list_commands", "get_logs", "start_command", "stop_command", "restart_command",
+		"who_owns_port", "create_command", "get_command_config", "update_command",
+		"delete_command", "doctor",
+	}
 	if len(list.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(list.Tools), len(want))
 	}
@@ -183,5 +187,52 @@ func TestMCPCreateCommandWritesTheConfig(t *testing.T) {
 	}
 	if _, bad := file.Commands["bad"]; bad {
 		t.Fatal("a rejected spec was written anyway")
+	}
+}
+
+func TestMCPUpdateAndDeleteRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := "# keep me\ncommands:\n  api:\n    cmd: [\"npm\", \"run\", \"dev\"]\n    port: 3000\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testDaemonWithConfig(t, path)
+
+	resps := mcpSession(t,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_command_config","arguments":{"name":"api"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"update_command","arguments":{"name":"api","cmd":["npm","run","dev"],"port":4000,"restart":"always"}}}`,
+	)
+	text, isErr := toolText(t, resps[0])
+	if isErr || !strings.Contains(text, `"port": 3000`) {
+		t.Fatalf("get_command_config = %q (isError=%v)", text, isErr)
+	}
+	if text, isErr := toolText(t, resps[1]); isErr {
+		t.Fatalf("update_command failed: %s", text)
+	}
+
+	file, err := config.ParseFile(path)
+	if err != nil {
+		t.Fatalf("the written config no longer parses: %v", err)
+	}
+	if got := file.Commands["api"]; got.Port != 4000 || got.Restart != config.RestartAlways {
+		t.Fatalf("spec after update = %+v", got)
+	}
+
+	// Delete takes the command out of the file and leaves the rest alone.
+	resps = mcpSession(t, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"delete_command","arguments":{"name":"api"}}}`)
+	if text, isErr := toolText(t, resps[0]); isErr {
+		t.Fatalf("delete_command failed: %s", text)
+	}
+	file, err = config.ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, still := file.Commands["api"]; still {
+		t.Fatal("the command is still in the config")
+	}
+	blob, _ := os.ReadFile(path)
+	if !strings.Contains(string(blob), "# keep me") {
+		t.Fatalf("delete took a comment with it:\n%s", blob)
 	}
 }

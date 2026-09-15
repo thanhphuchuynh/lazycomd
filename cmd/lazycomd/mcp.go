@@ -121,6 +121,23 @@ func handleMCP(req rpcRequest) (rpcResponse, bool) {
 	return resp, true
 }
 
+// commandProps is a command spec as arguments, shared by the two tools that
+// write one.
+func commandProps() map[string]any {
+	return map[string]any{
+		"name":       str("command name; app:api puts it in the app project"),
+		"cmd":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": `argv, e.g. ["npm","run","dev"]`},
+		"cwd":        str("folder it runs in (default: the daemon's)"),
+		"env":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "environment variables"},
+		"shell":      flag_("run cmd[0] through sh -c instead of exec (needed for pipes, globs and $VARS)"),
+		"restart":    str("no, on-failure or always (default no)"),
+		"autostart":  flag_("start it when the daemon starts"),
+		"port":       num("the port it binds, so lazycomd can tell who owns it"),
+		"health":     str("http URL polled for readiness, e.g. http://localhost:8080/healthz"),
+		"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "commands to start first"},
+	}
+}
+
 // schema is a tiny JSON Schema builder: every tool here takes flat arguments.
 func schema(props map[string]any, required ...string) map[string]any {
 	if required == nil {
@@ -175,18 +192,22 @@ func mcpTools() []toolDef {
 		{
 			Name:        "create_command",
 			Description: "Register a new command in the config, so it survives restarts and shows up in the TUI. A namespaced name (app:api) writes into that project's lazycomd.yaml; a bare name writes into the global config. Use it after scaffolding a service.",
-			InputSchema: schema(map[string]any{
-				"name":       str("command name; app:api puts it in the app project"),
-				"cmd":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": `argv, e.g. ["npm","run","dev"]`},
-				"cwd":        str("folder it runs in (default: the daemon's)"),
-				"env":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "environment variables"},
-				"shell":      flag_("run cmd[0] through sh -c instead of exec (needed for pipes, globs and $VARS)"),
-				"restart":    str("no, on-failure or always (default no)"),
-				"autostart":  flag_("start it when the daemon starts"),
-				"port":       num("the port it binds, so lazycomd can tell who owns it"),
-				"health":     str("http URL polled for readiness, e.g. http://localhost:8080/healthz"),
-				"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "commands to start first"},
-			}, "name", "cmd"),
+			InputSchema: schema(commandProps(), "name", "cmd"),
+		},
+		{
+			Name:        "get_command_config",
+			Description: "One command's full spec as the config file holds it, including fields no list shows. Read this before update_command, which replaces the whole spec.",
+			InputSchema: schema(map[string]any{"name": str("command name")}, "name"),
+		},
+		{
+			Name:        "update_command",
+			Description: "Replace a command's spec. This overwrites every field, so read get_command_config first and send back everything you are not changing. The name itself cannot be changed: that is a delete plus a create.",
+			InputSchema: schema(commandProps(), "name", "cmd"),
+		},
+		{
+			Name:        "delete_command",
+			Description: "Remove a command from the config file for good, along with its own comment. It is stopped first if it is running. Confirm with the user before calling this: the config is theirs, and the removal cannot be undone from here.",
+			InputSchema: schema(map[string]any{"name": str("command name")}, "name"),
 		},
 		{
 			Name:        "doctor",
@@ -214,6 +235,28 @@ type toolArgs struct {
 	Autostart bool              `json:"autostart"`
 	Health    string            `json:"health"`
 	DependsOn []string          `json:"depends_on"`
+}
+
+// spec turns the write tools' arguments into a command, refusing the two
+// things the daemon cannot fill in for itself.
+func (a toolArgs) spec() (config.Command, error) {
+	if strings.TrimSpace(a.Name) == "" {
+		return config.Command{}, errors.New("name is required")
+	}
+	if len(a.Cmd) == 0 {
+		return config.Command{}, errors.New("cmd is required, as an array of arguments")
+	}
+	return config.Command{
+		Cmd:       a.Cmd,
+		Cwd:       a.Cwd,
+		Env:       a.Env,
+		Shell:     a.Shell,
+		Restart:   config.Restart(a.Restart),
+		Autostart: a.Autostart,
+		Port:      a.Port,
+		Health:    a.Health,
+		DependsOn: a.DependsOn,
+	}, nil
 }
 
 type toolCall struct {
@@ -321,25 +364,43 @@ func dispatchTool(call toolCall) (any, error) {
 		return map[string]any{"port": a.Port, "listening": true, "owners": ports}, nil
 
 	case "create_command":
-		if strings.TrimSpace(a.Name) == "" {
-			return nil, errors.New("name is required")
-		}
-		if len(a.Cmd) == 0 {
-			return nil, errors.New("cmd is required, as an array of arguments")
+		spec, err := a.spec()
+		if err != nil {
+			return nil, err
 		}
 		// The daemon validates the spec and picks the file the name belongs
 		// in — the global config, or a project's lazycomd.yaml.
-		return c.Create(a.Name, config.Command{
-			Cmd:       a.Cmd,
-			Cwd:       a.Cwd,
-			Env:       a.Env,
-			Shell:     a.Shell,
-			Restart:   config.Restart(a.Restart),
-			Autostart: a.Autostart,
-			Port:      a.Port,
-			Health:    a.Health,
-			DependsOn: a.DependsOn,
-		})
+		return c.Create(a.Name, spec)
+
+	case "get_command_config":
+		name, err := resolve()
+		if err != nil {
+			return nil, err
+		}
+		return c.CommandConfig(name)
+
+	case "update_command":
+		spec, err := a.spec()
+		if err != nil {
+			return nil, err
+		}
+		name, err := resolve()
+		if err != nil {
+			return nil, err
+		}
+		// PUT replaces, which is why the tool tells the caller to read the
+		// spec first: anything left out here is dropped from the file.
+		return c.Update(name, spec)
+
+	case "delete_command":
+		name, err := resolve()
+		if err != nil {
+			return nil, err
+		}
+		if err := c.Delete(name); err != nil {
+			return nil, err
+		}
+		return map[string]any{"name": name, "deleted": true}, nil
 
 	case "doctor":
 		return runDoctorFindings(c)
