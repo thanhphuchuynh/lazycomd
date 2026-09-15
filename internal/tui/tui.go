@@ -244,15 +244,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayNone
 			return m, nil
 		case "enter":
+			if err := m.form.Validate(); err != nil {
+				m.form.SetError(err.Error())
+				return m, nil
+			}
 			name, cmd := m.form.Result()
-			if name == "" {
-				m.form.SetError("name is required")
-				return m, nil
-			}
-			if len(cmd.Cmd) == 0 {
-				m.form.SetError("command is required")
-				return m, nil
-			}
 			return m, saveCommand(m.client, m.form.Editing(), name, cmd)
 		}
 		var cmd tea.Cmd

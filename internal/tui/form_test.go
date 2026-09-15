@@ -54,8 +54,8 @@ func TestFormNavigationWraps(t *testing.T) {
 		t.Fatalf("field = %v after a full cycle, want back to name", f.field)
 	}
 	f, _ = f.Update(key("shift+tab"))
-	if f.field != fieldRestart {
-		t.Fatalf("shift+tab from name went to %v, want restart", f.field)
+	if f.field != fieldCount-1 {
+		t.Fatalf("shift+tab from name went to %v, want the last field", f.field)
 	}
 }
 
@@ -262,8 +262,8 @@ func TestFolderCompletesRealDirectories(t *testing.T) {
 		t.Fatalf("value after tab = %q", got)
 	}
 	f, _ = f.Update(key("tab")) // nothing left to complete, so tab moves on
-	if f.field != fieldRestart {
-		t.Fatalf("second tab went to %v, want restart", f.field)
+	if f.field != fieldEnv {
+		t.Fatalf("second tab went to %v, want env", f.field)
 	}
 }
 
@@ -330,5 +330,88 @@ func TestLongCommandWrapsInsteadOfScrolling(t *testing.T) {
 	_, c := f.Result()
 	if len(c.Cmd) != 4 || c.Shell {
 		t.Fatalf("Result() = %v shell=%v", c.Cmd, c.Shell)
+	}
+}
+
+func TestFormEditsEveryFieldItShows(t *testing.T) {
+	f := newForm("/home/me", false)
+	f.OpenEdit("db", config.Command{
+		Cmd:    []string{"./proxy"},
+		Env:    map[string]string{"LOG": "debug"},
+		Port:   5433,
+		Health: "http://localhost:5433/healthz",
+	}, nil)
+
+	if got := f.env.Value(); got != "LOG=debug" {
+		t.Fatalf("env field = %q", got)
+	}
+	if got := f.port.Value(); got != "5433" {
+		t.Fatalf("port field = %q", got)
+	}
+
+	f.env.SetValue("LOG=info PGPASSWORD=hunter2")
+	f.port.SetValue("6000")
+	f.health.SetValue("http://localhost:6000/up")
+	f.field = fieldAutostart
+	f, _ = f.Update(key(" "))
+
+	_, c := f.Result()
+	if c.Env["LOG"] != "info" || c.Env["PGPASSWORD"] != "hunter2" || len(c.Env) != 2 {
+		t.Fatalf("env = %v", c.Env)
+	}
+	if c.Port != 6000 || c.Health != "http://localhost:6000/up" || !c.Autostart {
+		t.Fatalf("port=%d health=%q autostart=%v", c.Port, c.Health, c.Autostart)
+	}
+}
+
+func TestFormValidateCatchesBadInput(t *testing.T) {
+	open := func() formModel {
+		f := newForm("/home/me", false)
+		f.OpenCreate(nil)
+		f.name.SetValue("db")
+		f.command.SetValue("./proxy")
+		return f
+	}
+
+	if err := open().Validate(); err != nil {
+		t.Fatalf("a good form should validate: %v", err)
+	}
+	for _, tc := range []struct{ field, value, want string }{
+		{"port", "nope", "not a number"},
+		{"port", "70000", "out of range"},
+		{"env", "LOGdebug", "not KEY=VALUE"},
+		{"health", "ftp://x/y", "scheme must be http"},
+	} {
+		f := open()
+		switch tc.field {
+		case "port":
+			f.port.SetValue(tc.value)
+		case "env":
+			f.env.SetValue(tc.value)
+		case "health":
+			f.health.SetValue(tc.value)
+		}
+		err := f.Validate()
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s=%q gave %v, want %q", tc.field, tc.value, err, tc.want)
+		}
+	}
+}
+
+// An env value with a space cannot survive the one-line field, so the field
+// goes read-only rather than writing back half of it.
+func TestFormLocksEnvItCannotRoundTrip(t *testing.T) {
+	env := map[string]string{"GREETING": "hello there"}
+	f := newForm("/home/me", false)
+	f.OpenEdit("db", config.Command{Cmd: []string{"./proxy"}, Env: env}, nil)
+
+	if !f.envLocked {
+		t.Fatal("env holding a space should lock the field")
+	}
+	f.field = fieldEnv
+	f.focus()
+	f = typeForm(f, "XXX")
+	if _, c := f.Result(); c.Env["GREETING"] != "hello there" || len(c.Env) != 1 {
+		t.Fatalf("locked env was rewritten: %v", c.Env)
 	}
 }

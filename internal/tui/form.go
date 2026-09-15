@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -20,7 +23,11 @@ const (
 	fieldName formField = iota
 	fieldCommand
 	fieldFolder
+	fieldEnv
+	fieldPort
+	fieldHealth
 	fieldRestart
+	fieldAutostart
 	fieldCount
 )
 
@@ -32,11 +39,19 @@ type formModel struct {
 	editing bool
 	base    config.Command // what we started from, so unshown fields survive
 
-	name    textinput.Model
-	command textarea.Model
-	folder  textinput.Model
-	restart int
-	field   formField
+	name      textinput.Model
+	command   textarea.Model
+	folder    textinput.Model
+	env       textinput.Model
+	port      textinput.Model
+	health    textinput.Model
+	restart   int
+	autostart bool
+	field     formField
+
+	// envLocked is set when the spec holds an env value this one-line field
+	// cannot round-trip. Rewriting it would silently cut the value in half.
+	envLocked bool
 
 	folderTyped bool // you edited it, so stop prefilling over you
 	err         string
@@ -59,6 +74,9 @@ func newForm(launchDir string, remote bool) formModel {
 		name:      mk(80),
 		command:   newCommandArea(),
 		folder:    folder,
+		env:       mk(400),
+		port:      mk(5),
+		health:    mk(200),
 		launchDir: launchDir,
 		remote:    remote,
 	}
@@ -97,6 +115,10 @@ func (f *formModel) OpenCreate(projects map[string]string) {
 	f.name.Reset()
 	f.command.Reset()
 	f.folder.Reset()
+	f.env.Reset()
+	f.port.Reset()
+	f.health.Reset()
+	f.autostart, f.envLocked = false, false
 	if !f.remote {
 		// You add a command for the project you are sitting in.
 		f.folder.SetValue(f.launchDir)
@@ -118,6 +140,11 @@ func (f *formModel) OpenEdit(name string, c config.Command, projects map[string]
 	}
 	f.command.SetValue(line)
 	f.folder.SetValue(c.Cwd)
+	f.env.SetValue(formatEnv(c.Env))
+	f.envLocked = !envRoundTrips(c.Env)
+	f.port.SetValue(portString(c.Port))
+	f.health.SetValue(c.Health)
+	f.autostart = c.Autostart
 
 	f.restart = 0
 	for i, r := range restartChoices {
@@ -136,6 +163,9 @@ func (f *formModel) focus() {
 	f.name.Blur()
 	f.command.Blur()
 	f.folder.Blur()
+	f.env.Blur()
+	f.port.Blur()
+	f.health.Blur()
 	switch f.field {
 	case fieldName:
 		if !f.editing {
@@ -146,6 +176,14 @@ func (f *formModel) focus() {
 	case fieldFolder:
 		f.folder.Focus()
 		f.folder.SetSuggestions(f.dirSuggestions())
+	case fieldEnv:
+		if !f.envLocked {
+			f.env.Focus()
+		}
+	case fieldPort:
+		f.port.Focus()
+	case fieldHealth:
+		f.health.Focus()
 	}
 }
 
@@ -179,12 +217,19 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		return f, nil
 	}
 
-	if f.field == fieldRestart {
+	switch f.field {
+	case fieldRestart:
 		switch k.String() {
 		case "right", "l", " ":
 			f.restart = (f.restart + 1) % len(restartChoices)
 		case "left", "h":
 			f.restart = (f.restart + len(restartChoices) - 1) % len(restartChoices)
+		}
+		return f, nil
+	case fieldAutostart:
+		switch k.String() {
+		case "right", "l", "left", "h", " ", "y", "n":
+			f.autostart = !f.autostart
 		}
 		return f, nil
 	}
@@ -203,6 +248,15 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		f.folder, cmd = f.folder.Update(msg)
 		f.folderTyped = true
 		f.folder.SetSuggestions(f.dirSuggestions())
+	case fieldEnv:
+		if f.envLocked {
+			return f, nil
+		}
+		f.env, cmd = f.env.Update(msg)
+	case fieldPort:
+		f.port, cmd = f.port.Update(msg)
+	case fieldHealth:
+		f.health, cmd = f.health.Update(msg)
 	}
 	return f, cmd
 }
@@ -224,14 +278,114 @@ func (f *formModel) syncFolderToProject() {
 }
 
 // Result is the name and the command the form describes. It starts from the
-// spec it opened with, so env, depends_on, health and port survive an edit.
+// spec it opened with, so depends_on, size and log survive an edit.
 func (f formModel) Result() (string, config.Command) {
 	c := f.base
 	cmd, shell := splitCommand(strings.TrimSpace(f.command.Value()))
 	c.Cmd, c.Shell = cmd, shell
 	c.Cwd = strings.TrimSpace(f.folder.Value())
 	c.Restart = restartChoices[f.restart]
+	c.Autostart = f.autostart
+	c.Health = strings.TrimSpace(f.health.Value())
+	c.Port, _ = parsePort(f.port.Value())
+	if !f.envLocked {
+		c.Env, _ = parseEnv(f.env.Value())
+	}
 	return strings.TrimSpace(f.name.Value()), c
+}
+
+// Validate reports what the form cannot turn into a command, so a typo is
+// caught in the field rather than by the daemon's reparse.
+func (f formModel) Validate() error {
+	if strings.TrimSpace(f.name.Value()) == "" {
+		return errors.New("name is required")
+	}
+	if cmd, _ := splitCommand(strings.TrimSpace(f.command.Value())); len(cmd) == 0 {
+		return errors.New("command is required")
+	}
+	if _, err := parsePort(f.port.Value()); err != nil {
+		return err
+	}
+	if !f.envLocked {
+		if _, err := parseEnv(f.env.Value()); err != nil {
+			return err
+		}
+	}
+	// The rest — health's scheme, the port's range — is config.Command's own
+	// validation, which every write already runs.
+	c := f.base
+	c.Cmd, _ = splitCommand(strings.TrimSpace(f.command.Value()))
+	c.Health = strings.TrimSpace(f.health.Value())
+	c.Port, _ = parsePort(f.port.Value())
+	file := config.File{Commands: map[string]config.Command{strings.TrimSpace(f.name.Value()): c}}
+	return file.Validate()
+}
+
+// parsePort reads the PORT field. Blank means no port, which is how a command
+// that binds nothing is spelled.
+func parsePort(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("port %q is not a number", s)
+	}
+	return n, nil
+}
+
+// parseEnv reads the ENV field: KEY=VALUE pairs separated by spaces.
+func parseEnv(s string) (map[string]string, error) {
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(fields))
+	for _, f := range fields {
+		k, v, ok := strings.Cut(f, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("env %q is not KEY=VALUE", f)
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
+// formatEnv writes env back out in the order a reader expects it: sorted, so
+// opening the same command twice shows the same line.
+func formatEnv(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, k+"="+env[k])
+	}
+	return strings.Join(pairs, " ")
+}
+
+// envRoundTrips reports whether this env survives the one-line field. A value
+// holding a space would come back as two pairs, so such a command keeps its
+// env and the field goes read-only.
+func envRoundTrips(env map[string]string) bool {
+	for k, v := range env {
+		if strings.ContainsAny(k, " =") || strings.ContainsAny(v, " ") {
+			return false
+		}
+	}
+	return true
+}
+
+// portString renders a port for the field, with 0 meaning "none" rather than
+// a literal zero nobody typed.
+func portString(port int) string {
+	if port == 0 {
+		return ""
+	}
+	return strconv.Itoa(port)
 }
 
 // splitCommand reads the one-line command field. A shell metacharacter means
@@ -325,17 +479,31 @@ func (f formModel) hint() string {
 			return "suggested from where you launched · blank = ~"
 		}
 		return "where the command runs · blank = ~"
+	case fieldEnv:
+		if f.envLocked {
+			return "a value here holds a space · edit it in the file"
+		}
+		return "KEY=VALUE pairs, space separated"
+	case fieldPort:
+		return "the port it binds · shown in the ports panel · blank = none"
+	case fieldHealth:
+		return "http URL polled for readiness · blank = none"
+	case fieldAutostart:
+		return "start it when the daemon starts · space to change"
 	default:
 		return "when the command exits · ←/→ or space to change"
 	}
 }
 
-// Height is the form's natural height at this width: four fields, a blank
+// Height is the form's natural height at this width: every field, a blank
 // row, the hint or the wrapped error, the key line and both borders, plus
-// whatever the folder dropdown is showing.
+// whatever the command wrapped to and the folder dropdown is showing.
 func (f formModel) Height(width int) int {
+	// Every field, the blank row, the keys, both borders, then however many
+	// lines the error, the wrapped command and the folder dropdown want.
+	fixed := int(fieldCount) + 4
 	extra := len(f.commandLines(width)) - 1
-	return 8 + maxInt(len(f.errLines(width)), 1) + len(f.suggestionRows(width)) + extra
+	return fixed + maxInt(len(f.errLines(width)), 1) + len(f.suggestionRows(width)) + extra
 }
 
 // commandLines renders the COMMAND field at this width, wrapped. The textarea
@@ -412,12 +580,14 @@ func (f formModel) View(width, height int) string {
 	// folder path ran straight into the border with nothing to say it was cut.
 	avail := maxInt(width-formPrefix-3, 8)
 	f.name.Width, f.folder.Width = avail, avail
+	f.env.Width, f.health.Width = avail, avail
+	f.port.Width = 6
 
 	// A width only exists at render time, so a value filled in by OpenEdit
 	// computed its scroll offset against a width of zero and stayed pinned to
 	// its first character. Re-seat the cursor to recompute that offset, or a
 	// long command opens showing its head with the tail cut at the border.
-	for _, ti := range []*textinput.Model{&f.name, &f.folder} {
+	for _, ti := range []*textinput.Model{&f.name, &f.folder, &f.env, &f.port, &f.health} {
 		ti.SetCursor(ti.Position())
 	}
 
@@ -431,7 +601,14 @@ func (f formModel) View(width, height int) string {
 	}
 	rows = append(rows, f.row(fieldFolder, "FOLDER", f.folderView()))
 	rows = append(rows, f.suggestionRows(width)...)
-	rows = append(rows, f.row(fieldRestart, "RESTART", f.restartView()), "")
+	rows = append(rows,
+		f.row(fieldEnv, "ENV", f.envView()),
+		f.row(fieldPort, "PORT", f.port.View()),
+		f.row(fieldHealth, "HEALTH", f.health.View()),
+		f.row(fieldRestart, "RESTART", f.restartView()),
+		f.row(fieldAutostart, "AUTOSTART", f.autostartView()),
+		"",
+	)
 	if lines := f.errLines(width); len(lines) > 0 {
 		for i, line := range lines {
 			prefix := "  ⚠ "
@@ -456,11 +633,12 @@ func (f formModel) row(field formField, label, value string) string {
 		gutter = "› "
 		shown = styleHeader.Render(label)
 	}
-	return gutter + shown + strings.Repeat(" ", maxInt(9-len(label), 1)) + value
+	return gutter + shown + strings.Repeat(" ", maxInt(formPrefix-2-len(label), 1)) + value
 }
 
-// formPrefix is the width of a row's gutter plus its label column.
-const formPrefix = 11
+// formPrefix is the width of a row's gutter plus its label column, wide
+// enough for the longest label with one space after it.
+const formPrefix = 12
 
 func (f formModel) nameView() string {
 	if f.editing {
@@ -476,6 +654,29 @@ func (f formModel) folderView() string {
 		return styleDim.Render(tail(f.folder.Value(), f.folder.Width))
 	}
 	return f.folder.View()
+}
+
+// envView shows a locked env dimmed, so it reads as something the file owns.
+func (f formModel) envView() string {
+	if f.envLocked {
+		return styleDim.Render(formatEnv(f.base.Env))
+	}
+	return f.env.View()
+}
+
+// autostartView marks the choice in place, like RESTART.
+func (f formModel) autostartView() string {
+	yes, no := "yes", "no"
+	if f.autostart {
+		if f.field == fieldAutostart {
+			return styleHeader.Render("[yes]") + styleDim.Render(" · "+no)
+		}
+		return yes + styleDim.Render(" · "+no)
+	}
+	if f.field == fieldAutostart {
+		return styleDim.Render(yes+" · ") + styleHeader.Render("[no]")
+	}
+	return styleDim.Render(yes+" · ") + no
 }
 
 // restartView shows all three choices with the current one marked, so the
