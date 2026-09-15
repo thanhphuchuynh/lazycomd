@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/thanhphuchuynh/lazycomd/internal/client"
+	"github.com/thanhphuchuynh/lazycomd/internal/config"
 )
 
 // protocolVersion is what this server speaks when a client does not name a
@@ -171,6 +173,22 @@ func mcpTools() []toolDef {
 			InputSchema: schema(map[string]any{"port": num("TCP port, 1-65535")}, "port"),
 		},
 		{
+			Name:        "create_command",
+			Description: "Register a new command in the config, so it survives restarts and shows up in the TUI. A namespaced name (app:api) writes into that project's lazycomd.yaml; a bare name writes into the global config. Use it after scaffolding a service.",
+			InputSchema: schema(map[string]any{
+				"name":       str("command name; app:api puts it in the app project"),
+				"cmd":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": `argv, e.g. ["npm","run","dev"]`},
+				"cwd":        str("folder it runs in (default: the daemon's)"),
+				"env":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "environment variables"},
+				"shell":      flag_("run cmd[0] through sh -c instead of exec (needed for pipes, globs and $VARS)"),
+				"restart":    str("no, on-failure or always (default no)"),
+				"autostart":  flag_("start it when the daemon starts"),
+				"port":       num("the port it binds, so lazycomd can tell who owns it"),
+				"health":     str("http URL polled for readiness, e.g. http://localhost:8080/healthz"),
+				"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "commands to start first"},
+			}, "name", "cmd"),
+		},
+		{
 			Name:        "doctor",
 			Description: "Check the catalog for what will fail to start: two commands claiming one port, a depends_on naming nothing, a cwd that is gone. Run it before a long task.",
 			InputSchema: schema(map[string]any{}),
@@ -185,6 +203,17 @@ type toolArgs struct {
 	WithDeps *bool   `json:"with_deps"`
 	WaitSec  float64 `json:"wait_sec"`
 	Port     int     `json:"port"`
+
+	// create_command's spec. Port doubles as the port field, since no tool
+	// needs both meanings at once.
+	Cmd       []string          `json:"cmd"`
+	Cwd       string            `json:"cwd"`
+	Env       map[string]string `json:"env"`
+	Shell     bool              `json:"shell"`
+	Restart   string            `json:"restart"`
+	Autostart bool              `json:"autostart"`
+	Health    string            `json:"health"`
+	DependsOn []string          `json:"depends_on"`
 }
 
 type toolCall struct {
@@ -290,6 +319,27 @@ func dispatchTool(call toolCall) (any, error) {
 			return map[string]any{"port": a.Port, "listening": false}, nil
 		}
 		return map[string]any{"port": a.Port, "listening": true, "owners": ports}, nil
+
+	case "create_command":
+		if strings.TrimSpace(a.Name) == "" {
+			return nil, errors.New("name is required")
+		}
+		if len(a.Cmd) == 0 {
+			return nil, errors.New("cmd is required, as an array of arguments")
+		}
+		// The daemon validates the spec and picks the file the name belongs
+		// in — the global config, or a project's lazycomd.yaml.
+		return c.Create(a.Name, config.Command{
+			Cmd:       a.Cmd,
+			Cwd:       a.Cwd,
+			Env:       a.Env,
+			Shell:     a.Shell,
+			Restart:   config.Restart(a.Restart),
+			Autostart: a.Autostart,
+			Port:      a.Port,
+			Health:    a.Health,
+			DependsOn: a.DependsOn,
+		})
 
 	case "doctor":
 		return runDoctorFindings(c)

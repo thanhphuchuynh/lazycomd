@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,7 +69,7 @@ func TestMCPHandshakeAndToolList(t *testing.T) {
 	if err := json.Unmarshal(blob, &list); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"list_commands", "get_logs", "start_command", "stop_command", "restart_command", "who_owns_port", "doctor"}
+	want := []string{"list_commands", "get_logs", "start_command", "stop_command", "restart_command", "who_owns_port", "create_command", "doctor"}
 	if len(list.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(list.Tools), len(want))
 	}
@@ -137,5 +139,49 @@ func TestMCPUnknownMethodAndBadLine(t *testing.T) {
 	}
 	if resps[0].Error == nil || resps[0].Error.Code != -32601 {
 		t.Fatalf("error = %+v, want method not found", resps[0].Error)
+	}
+}
+
+func TestMCPCreateCommandWritesTheConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("# demo\ncommands:\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testDaemonWithConfig(t, path)
+
+	resps := mcpSession(t,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_command","arguments":`+
+			`{"name":"api","cmd":["npm","run","dev"],"cwd":"`+dir+`","port":3000,"restart":"on-failure","env":{"LOG":"debug"}}}}`,
+		// A spec the daemon rejects comes back as a tool error, not a write.
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_command","arguments":{"name":"bad","cmd":["x"],"health":"ftp://nope"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_command","arguments":{"name":"empty"}}}`,
+	)
+	if len(resps) != 3 {
+		t.Fatalf("got %d responses, want 3", len(resps))
+	}
+	if text, isErr := toolText(t, resps[0]); isErr {
+		t.Fatalf("create_command failed: %s", text)
+	}
+	for _, i := range []int{1, 2} {
+		if text, isErr := toolText(t, resps[i]); !isErr {
+			t.Fatalf("response %d should be a tool error, got %s", i, text)
+		}
+	}
+
+	// The command is in the file, with the fields the tool was given.
+	file, err := config.ParseFile(path)
+	if err != nil {
+		t.Fatalf("the written config no longer parses: %v", err)
+	}
+	got, ok := file.Commands["api"]
+	if !ok {
+		t.Fatalf("commands = %v", file.Commands)
+	}
+	if got.Port != 3000 || got.Restart != config.RestartOnFailure || got.Env["LOG"] != "debug" {
+		t.Fatalf("spec = %+v", got)
+	}
+	if _, bad := file.Commands["bad"]; bad {
+		t.Fatal("a rejected spec was written anyway")
 	}
 }

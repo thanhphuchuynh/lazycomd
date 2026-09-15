@@ -13,6 +13,7 @@ import (
 
 	"github.com/thanhphuchuynh/lazycomd/internal/api"
 	"github.com/thanhphuchuynh/lazycomd/internal/config"
+	"github.com/thanhphuchuynh/lazycomd/internal/configw"
 	"github.com/thanhphuchuynh/lazycomd/internal/manager"
 )
 
@@ -32,6 +33,40 @@ func testDaemon(t *testing.T, cmds map[string]config.Command) *manager.Manager {
 		},
 	})
 	sock := filepath.Join(shortDir(t), "s.sock")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: s.Handler()}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+
+	t.Setenv("LAZYCOMD_ADDR", "unix://"+sock)
+	t.Setenv("LAZYCOMD_TOKEN", "")
+	return m
+}
+
+// testDaemonWithConfig serves a daemon whose catalog is one real config file,
+// so a test can assert what a write put on disk.
+func testDaemonWithConfig(t *testing.T, path string) *manager.Manager {
+	t.Helper()
+	load := func() (*config.Config, error) { return config.Load(path) }
+	cfg, err := load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := manager.New(cfg, t.TempDir())
+	m.Grace = 500 * time.Millisecond
+	m.SettleDelay = 5 * time.Millisecond
+	t.Cleanup(m.Shutdown)
+
+	s := api.New(api.Options{
+		Manager:    m,
+		Reload:     load,
+		ConfigPath: path,
+		Writers:    configw.NewRegistry(),
+	})
+	sock := filepath.Join(shortDir(t), "w.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
